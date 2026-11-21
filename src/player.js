@@ -213,7 +213,7 @@ export class Player {
     return best;
   }
 
-  enter(target) {
+  enter(target, duty = false) {
     const g = this.game;
     let v = target.v;
     let jacked = false;
@@ -222,6 +222,7 @@ export class Player {
       jacked = true;
     }
     if (g.vehicles.some((o) => o !== v && o.driven)) return;
+    this.startDutyOnEnter = duty;
     if (target.cab) v.setCab(target.cab);
     // Pick the closer door, walk there, then climb in
     const d = v.def;
@@ -331,6 +332,7 @@ export class Player {
   }
 
   updateEntering(dt, T) {
+    const g = this.game;
     const a = this.anim;
     const v = this.vehicle;
     a.t += dt;
@@ -373,11 +375,9 @@ export class Player {
       this.mode = 'driving';
       v.locked = false;
       v.setDriven(true);
-      this.game.onEnterVehicle(v);
-      if (this.startDutyOnEnter && g.jobs && g.jobs.eligible(v)) {
-        g.jobs.start(v);
-        this.startDutyOnEnter = false;
-      }
+      g.onEnterVehicle(v);
+      if (this.startDutyOnEnter && g.jobs && !g.jobs.on && g.jobs.eligible(v)) g.jobs.start(v);
+      this.startDutyOnEnter = false;
     }
   }
 
@@ -606,8 +606,7 @@ export class Player {
     } else if (input.hit('KeyB') && nearCar && !this.aiming) {
       const vType = nearCar.v ? nearCar.v.type : nearCar.traffic ? nearCar.traffic.type : null;
       if (vType === 'bike' || vType === 'rickshaw' || vType === 'van' || vType === 'taxi' || vType === 'auto') {
-        this.startDutyOnEnter = true;
-        this.enter(nearCar);
+        this.enter(nearCar, true);
         return;
       }
     } else if (input.hit('KeyE') && spot) {
