@@ -23,6 +23,7 @@ import { Station } from './station.js';
 import { AddaManager } from './adda.js';
 import { Voices } from './voice.js';
 import { Rides } from './ride.js';
+import { Interiors, interiorTarget, setInteriorNight } from './interiors.js';
 import { Boards } from './boards.js';
 import { BusStand } from './busstand.js';
 import { dressBus } from './busroutes.js';
@@ -324,6 +325,21 @@ const CAR_CAMS = [
   { dist: 0, height: 1.22, look: 0 },
 ];
 
+/* ---------- Vehicle interiors ---------- */
+const interiors = new Interiors();
+let firstPersonWas = false;
+/** In the inside view (C), show the cabin you're sitting in and hide your own body. */
+function updateInterior(dt) {
+  const p = player;
+  const v = p.vehicle;
+  const fp = state === 'play' && p.driving && !!v && cam.mode === 2 && !(v.rail && !p.passenger);
+  let target = null;
+  if (fp) target = v.rail ? (rides.ride && rides.ride.kind === 'rail' ? interiorTarget(v, rides.ride.ci) : null) : interiorTarget(v);
+  interiors.update(dt, target);
+  if (fp !== firstPersonWas) p.ch.mesh.visible = !fp;
+  firstPersonWas = fp;
+}
+
 function updateCamera(dt) {
   if (state === 'title') {
     // Circle Howrah Bridge, with the city behind it
@@ -415,7 +431,11 @@ function updateCamera(dt) {
       cam.lookPitch = damp(cam.lookPitch, 0, 3, dt);
     }
     let heading = v.yaw;
-    if (p.passenger) {
+    const firstPerson = cam.mode === 2 && !(v.rail && !p.passenger);
+    if (firstPerson && p.passenger) {
+      // inside: look the way your seat faces
+      heading = p.yaw;
+    } else if (p.passenger) {
       // riding: look the way it's going, even when a tram or train runs cab-end backwards;
       // stopped, keep looking that way rather than swinging round to the nose
       if (cam.rideV !== v) {
@@ -427,10 +447,15 @@ function updateCamera(dt) {
     } else if (v.speed > 3 && v.vf > -1) heading = dampAngle(v.yaw, Math.atan2(v.vel.x, v.vel.y), 1, 0.35);
     cam.yaw = dampAngle(cam.yaw, heading, 5, dt);
     const m = CAR_CAMS[cam.mode];
-    if (cam.mode === 2) {
-      // Rail: ride up front just past the windscreen; road vehicles: the driver's eyes
-      const eye = v.rail ? v.local(0, v.def.hl + 0.4) : v.local(v.def.seatX, v.def.seatZ + 0.2);
-      camera.position.set(eye.x, v.pos.y + m.height + (v.def.seatY + 0.42) + (v.rail ? 0.3 : 0), eye.z);
+    if (firstPerson) {
+      // From your own seat, inside the cabin: the driver's eyes, or a passenger's
+      camera.position.set(p.pos.x + Math.sin(p.yaw) * 0.12, p.pos.y + 1.62, p.pos.z + Math.cos(p.yaw) * 0.12);
+      const ly = cam.yaw + cam.look;
+      camera.lookAt(camera.position.x + Math.sin(ly) * 20, camera.position.y - 0.4 - cam.lookPitch * 10, camera.position.z + Math.cos(ly) * 20);
+    } else if (cam.mode === 2) {
+      // Driving a train, tram or Metro: ride up front just past the windscreen
+      const eye = v.local(0, v.def.hl + 0.4);
+      camera.position.set(eye.x, v.pos.y + m.height + (v.def.seatY + 0.42) + 0.3, eye.z);
       const ly = cam.yaw + cam.look;
       camera.lookAt(camera.position.x + Math.sin(ly) * 20, camera.position.y - 0.4 - cam.lookPitch * 10, camera.position.z + Math.cos(ly) * 20);
     } else {
@@ -1541,8 +1566,10 @@ function loop() {
   riverTraffic.update(dt, elapsed);
   station.update(dt, elapsed, { player, camPos: camera.position, audio });
   setTrafficLights(day.night);
+  setInteriorNight(day.night);
   for (const s of spots) s.intensity = day.night * 260;
   beamMat.uniforms.uIntensity.value = day.night * 0.35;
+  updateInterior(dt);
   updateCamera(dt);
   hud.prompt(state === 'play' ? player.prompt : null);
   {

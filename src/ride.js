@@ -4,6 +4,7 @@ import { LINES, pick } from './lines.js';
 import { MAP, Poly, offsetLine, routeLength } from './geo.js';
 import { inTiles } from './world.js';
 import { routePlan, nearestLink, planPath, busHeading } from './busroutes.js';
+import { railSeats } from './interiors.js';
 import { clamp, damp, dampAngle, etaText } from './utils.js';
 
 /*
@@ -362,18 +363,23 @@ export class Rides {
     let bd = Infinity;
     cs.cars.forEach((c, i) => {
       const d = Math.hypot(c.x - pl.pos.x, c.z - pl.pos.z);
-      if (d < bd) {
+      // a car with seats (not the Rajdhani's locomotive)
+      if (d < bd && railSeats(cs, i).length) {
         bd = d;
         ci = i;
       }
     });
-    const along = clamp((pl.pos.x - cs.cars[ci].x) * Math.sin(cs.cars[ci].yaw) + (pl.pos.z - cs.cars[ci].z) * Math.cos(cs.cars[ci].yaw), -cs.K.L / 2 + 2, cs.K.L / 2 - 2);
+    let along = clamp((pl.pos.x - cs.cars[ci].x) * Math.sin(cs.cars[ci].yaw) + (pl.pos.z - cs.cars[ci].z) * Math.cos(cs.cars[ci].yaw), -cs.K.L / 2 + 2, cs.K.L / 2 - 2);
+    // sit down in the seat nearest where you got on
+    let seat = null;
+    for (const s of railSeats(cs, ci)) if (!seat || Math.abs(s.z - along) < Math.abs(seat.z - along)) seat = s;
+    if (seat) along = seat.z;
     // the Metro is paid for at the gate: the card's tap covers one trip
     if (cs.kind === 'metro' && this.metroPass) this.metroPass = false;
     else this.pay(TICKETS[cs.kind], `${cs.label} ticket`);
     if (g.progress) g.progress.event(cs.kind);
     if (cs.kind === 'train' || cs.kind === 'express') g.station.ticketT = Math.max(g.station.ticketT, 600);
-    this.ride = { kind: 'rail', cs, ci, along, wasState: cs.state, lastStop: null };
+    this.ride = { kind: 'rail', cs, ci, along, seat, wasState: cs.state, lastStop: null };
     pl.board(cs, null);
     g.hud.notify(`ON THE ${cs.label.toUpperCase()}`, 'F to get off when it stops', '#38f3ff');
   }
@@ -482,7 +488,9 @@ export class Rides {
       const c = cs.cars[r.ci];
       const fx = Math.sin(c.yaw);
       const fz = Math.cos(c.yaw);
-      pl.seatAt(c.x + fx * r.along + fz * 0.7, cs.K.y + cs.K.floor + 0.45, c.z + fz * r.along - fx * 0.7, c.yaw + Math.PI / 2, T, dt);
+      const s = r.seat;
+      if (s) pl.seatAt(c.x + fz * s.x + fx * s.z, cs.K.y + s.y - 0.85, c.z - fx * s.x + fz * s.z, c.yaw + s.face, T, dt);
+      else pl.seatAt(c.x + fx * r.along + fz * 0.7, cs.K.y + cs.K.floor + 0.45, c.z + fz * r.along - fx * 0.7, c.yaw + Math.PI / 2, T, dt);
       // announce the stop
       // (a Metro reversing in its siding beyond the last station isn't a stop)
       if (cs.state === 'dwell' && r.wasState !== 'dwell' && (!cs.sideAt || cs.sideAt(cs.s) !== null)) {
