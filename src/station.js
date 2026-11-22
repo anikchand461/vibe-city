@@ -20,6 +20,16 @@ const STALLS = [
   { id: 'jhalmuri', en: 'JHALMURI', bn: 'ঝালমুড়ি', color: '#c0392b', price: 20, hp: 25, text: 'A cone of jhalmuri', where: 'out', v: 0.12 },
   { id: 'fruit', en: 'FRUITS', bn: 'ফল', color: '#3c8d2f', price: 25, hp: 20, text: 'Cut fruit with chaat masala', where: 'out', v: 0.34 },
 ];
+// how each stall shows on the map
+const STALL_MAP = {
+  tickets: ['🎫', 'Tickets'],
+  cha: ['☕', 'Cha'],
+  books: ['📰', 'Newspaper'],
+  mishti: ['🍬', 'Mishti'],
+  phuchka: ['🥟', 'Phuchka'],
+  jhalmuri: ['🥜', 'Jhalmuri'],
+  fruit: ['🍉', 'Fruit'],
+};
 const NEWS = [
   'The Calcutta Chronicle: Underwater Metro shatters cross-river transit records!',
   'The Calcutta Chronicle: 85,000 roar at Yuva Bharati as Kolkata Derby ends in 2-2 draw.',
@@ -177,6 +187,14 @@ export class Station {
       world.addCircle(x, z, 1.9);
     }
     this.spawn = P(D / 2 + 8, 0);
+  }
+
+  /** The stalls, for the map when you're at the station. */
+  pois() {
+    return this.stalls.map(({ def, x, z }) => {
+      const [icon, name] = STALL_MAP[def.id] || ['•', def.en];
+      return { x, z, icon, name: `${name} ₹${def.price}`, color: def.id === 'tickets' ? '#6ea6ff' : def.id === 'books' ? '#f4f1e8' : '#ffb36b' };
+    });
   }
 
   /** Something to do near this point (E): buy from a stall. */

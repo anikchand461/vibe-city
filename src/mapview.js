@@ -364,31 +364,33 @@ export class MapView {
       g.stroke();
     }
 
-    // Blips
+    // Blips. Stalls and shops round where you are (poi) only once zoomed in enough to tell them apart
     for (const b of blips) {
+      if (b.poi && S < 0.9) continue;
+      const rad = b.poi ? 12 : (b.r || 8) * 0.8;
       g.beginPath();
-      g.arc(X(b.x), Y(b.z), (b.r || 8) * 0.8, 0, Math.PI * 2);
-      g.fillStyle = b.color;
+      g.arc(X(b.x), Y(b.z), rad, 0, Math.PI * 2);
+      g.fillStyle = b.poi ? 'rgba(11, 13, 20, 0.85)' : b.color;
       g.fill();
       g.lineWidth = 2;
-      g.strokeStyle = '#000';
+      g.strokeStyle = b.poi ? b.color : '#000';
       g.stroke();
       if (b.label) {
         g.fillStyle = '#000';
-        g.font = 'bold 11px Rajdhani';
+        g.font = b.poi ? '13px sans-serif' : 'bold 11px Rajdhani';
         g.textAlign = 'center';
         g.textBaseline = 'middle';
         g.fillText(b.label, X(b.x), Y(b.z) + 1);
       }
-      if (b.name) {
+      if (b.name && (!b.poi || S >= 1.6)) {
         g.font = 'bold 13px Rajdhani';
         g.textAlign = 'center';
         g.textBaseline = 'top';
         g.lineWidth = 3;
         g.strokeStyle = '#000';
-        g.strokeText(b.name, X(b.x), Y(b.z) + (b.r || 8) * 0.8 + 3);
+        g.strokeText(b.name, X(b.x), Y(b.z) + rad + 3);
         g.fillStyle = b.color;
-        g.fillText(b.name, X(b.x), Y(b.z) + (b.r || 8) * 0.8 + 3);
+        g.fillText(b.name, X(b.x), Y(b.z) + rad + 3);
       }
     }
     // Waypoint flag

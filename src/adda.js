@@ -129,6 +129,11 @@ export class AddaManager {
     }
   }
 
+  /** The benches, for the map when you're nearby. */
+  pois() {
+    return this.spots.map((s) => ({ x: s.x, z: s.z, icon: '🪑', name: 'Adda & cha', color: '#ffd36b' }));
+  }
+
   /** Find nearest Adda spot within interaction distance (on foot) */
   near(pos) {
     if (this.active) return null;

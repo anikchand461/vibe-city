@@ -1025,6 +1025,7 @@ function updateRoute(dt) {
   hud.route = route;
   hud.waypoint(routeLength(route));
 }
+let mapPois = [];
 function setMap(open) {
   if (open && state !== 'play') return;
   if (!open && state !== 'map') return;
@@ -1037,6 +1038,9 @@ function setMap(open) {
     setTimeout(() => cb(null), 0);
   }
   mapView.show(open, player.focus);
+  // at a station or a market, open close in so its stalls and shops can be told apart
+  mapPois = open ? localPois() : [];
+  if (open && mapPois.some((p) => Math.hypot(p.x - player.focus.x, p.z - player.focus.z) < 150)) mapView.scale = Math.max(mapView.scale, 2.4);
   if (open) {
     if (document.pointerLockElement) document.exitPointerLock();
     if (audio.ctx) audio.ctx.suspend();
@@ -1339,10 +1343,22 @@ function aimHelp(dt) {
 
 /* ---------- Main loop ---------- */
 let last = 0;
+// Stalls, shops and benches round where you are: only this neighbourhood's, never the whole city
+const LOCAL_R = 250;
+function localPois() {
+  const f = player.focus;
+  const out = [];
+  for (const sys of [station, wardrobe, adda]) {
+    if (!sys || !sys.pois) continue;
+    for (const p of sys.pois()) if (Math.abs(p.x - f.x) < LOCAL_R && Math.abs(p.z - f.z) < LOCAL_R) out.push({ ...p, r: 9, label: p.icon, poi: true });
+  }
+  return out;
+}
 const blipsFn = () => {
   const b = gameplay.blips();
   b.push(...jobs.blips());
   if (cricket) b.push(...cricket.blips());
+  if (!player.underground) b.push(...localPois());
   if (waypoint) b.push({ x: waypoint.x, z: waypoint.z, color: '#ff3fa4', r: 9, always: true, label: '★' });
   return b;
 };
@@ -1408,7 +1424,7 @@ function loop() {
   if ((state === 'play' && input.hit('KeyM')) || (state === 'map' && (input.hit('KeyM') || input.hit('Escape')))) setMap(state === 'play');
   if (state === 'map') {
     if (waypoint && !route) route = world.graph.route(player.focus.x, player.focus.z, waypoint.x, waypoint.z);
-    mapView.draw(player, cricket ? [...gameplay.blips(), ...cricket.blips()] : gameplay.blips(), waypoint, route, player.vehicle && player.mode !== 'foot' ? vehicleHeading(player.vehicle) : player.yaw);
+    mapView.draw(player, [...gameplay.blips(), ...(cricket ? cricket.blips() : []), ...(player.underground ? [] : mapPois)], waypoint, route, player.vehicle && player.mode !== 'foot' ? vehicleHeading(player.vehicle) : player.yaw);
     input.endFrame();
     return;
   }

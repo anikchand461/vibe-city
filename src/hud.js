@@ -609,19 +609,21 @@ export class HUD {
         sx *= maxR / d;
         sy *= maxR / d;
       }
+      // stalls and shops round where you are: an icon on a dark disc, ringed in their colour
+      const r = b.poi ? 17 : b.r || 8;
       g.beginPath();
-      g.arc(C + sx, C + sy, b.r || 8, 0, Math.PI * 2);
-      g.fillStyle = b.color;
+      g.arc(C + sx, C + sy, r, 0, Math.PI * 2);
+      g.fillStyle = b.poi ? 'rgba(11, 13, 20, 0.85)' : b.color;
       g.shadowColor = b.color;
       g.shadowBlur = 12;
       g.fill();
       g.shadowBlur = 0;
-      g.lineWidth = 2.5;
-      g.strokeStyle = '#000';
+      g.lineWidth = b.poi ? 3 : 2.5;
+      g.strokeStyle = b.poi ? b.color : '#000';
       g.stroke();
       if (b.label) {
         g.fillStyle = '#000';
-        g.font = 'bold 13px Rajdhani';
+        g.font = b.poi ? '19px sans-serif' : 'bold 13px Rajdhani';
         g.textAlign = 'center';
         g.textBaseline = 'middle';
         g.fillText(b.label, C + sx, C + sy + 1);

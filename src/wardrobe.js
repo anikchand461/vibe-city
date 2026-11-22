@@ -161,6 +161,11 @@ export class WardrobeManager {
     }
   }
 
+  /** The shops, for the map when you're nearby. */
+  pois() {
+    return this.shops.map((s) => ({ x: s.x, z: s.z, icon: '👕', name: 'Wardrobe', color: '#ff7ad9' }));
+  }
+
   near(pos) {
     for (const shop of this.shops) {
       const d = Math.hypot(pos.x - shop.x, pos.z - shop.z);
