@@ -1,6 +1,8 @@
 // All sound is synthesised with WebAudio: engines (petrol, diesel, two-stroke, electric
 // traction), horns and bells, tyres, wind, impacts, the street ambience of Kolkata, and an
 // optional background music track (off by default).
+import { damp, lerp } from './utils.js';
+
 const loadFlag = (k, d) => {
   try {
     const v = localStorage.getItem(k);
