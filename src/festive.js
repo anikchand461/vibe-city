@@ -28,6 +28,7 @@ const VERT_SHADER = `
   attribute float aSize;
   varying vec3 vColor;
   varying float vTwinkle;
+  varying float vFar;
   uniform float uTime;
   uniform float uNight;
   void main() {
@@ -35,9 +36,12 @@ const VERT_SHADER = `
     float tw = 0.5 + 0.5 * sin(uTime * 3.8 + aPhase);
     vTwinkle = tw;
     vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-    // Point size scales with distance, twinkle, and night
-    float sz = aSize * (0.8 + 0.35 * tw);
-    gl_PointSize = clamp(sz * (300.0 / -mvPosition.z), 2.5, 38.0);
+    float d = -mvPosition.z;
+    // 0 close by (a sharp little bulb), 1 far off (a soft blur)
+    vFar = smoothstep(12.0, 160.0, d);
+    // the sprite holds the bulb and its halo; far ones get a little room to blur into
+    float sz = aSize * (0.9 + 0.2 * tw) * (1.0 + vFar);
+    gl_PointSize = clamp(sz * (150.0 / d), 1.5, 18.0);
     gl_Position = projectionMatrix * mvPosition;
   }
 `;
@@ -45,17 +49,21 @@ const VERT_SHADER = `
 const FRAG_SHADER = `
   varying vec3 vColor;
   varying float vTwinkle;
+  varying float vFar;
   uniform float uNight;
   void main() {
-    vec2 c = gl_PointCoord - vec2(0.5);
-    float dist = length(c);
-    if (dist > 0.5) discard;
-    float glow = 1.0 - smoothstep(0.0, 0.5, dist);
-    float core = 1.0 - smoothstep(0.0, 0.14, dist);
-    // Radiantly visible at night and during dusk
-    float intensity = (0.55 + 0.55 * uNight) * (0.7 + 0.3 * vTwinkle);
-    vec3 col = mix(vColor * 1.3, vec3(1.0, 0.98, 0.92), core * 0.75);
-    gl_FragColor = vec4(col, glow * intensity);
+    float r = length(gl_PointCoord - vec2(0.5)) * 2.0; // 0 centre, 1 edge
+    if (r > 1.0) discard;
+    // the bulb: a crisp disc up close, its edge softening with distance
+    float edge = mix(0.05, 0.55, vFar);
+    float bulb = 1.0 - smoothstep(0.42 - edge * 0.5, 0.42 + edge * 0.5, r);
+    // a faint halo round it, no bigger than the sprite
+    float halo = pow(1.0 - r, 2.2) * 0.38;
+    // far bulbs dim so a street of them glows instead of piling up into white
+    float fade = 1.0 - 0.7 * vFar;
+    float intensity = (0.38 + 0.32 * uNight) * (0.75 + 0.25 * vTwinkle) * fade;
+    vec3 col = mix(vColor, vec3(1.0, 0.97, 0.9), bulb * 0.2 * (1.0 - vFar));
+    gl_FragColor = vec4(col, (bulb + halo) * intensity);
   }
 `;
 
