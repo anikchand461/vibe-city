@@ -1,5 +1,21 @@
 import * as THREE from 'three';
-import { damp, dampAngle, paint, merge } from './utils.js';
+import { Character, POSE, randomLook } from './character.js';
+import { clamp, damp, dampAngle, paint, merge } from './utils.js';
+
+// The seated pose puts the hips 0.95 m above the feet; the bench seat is at 0.47 m
+const SEAT_DROP = -0.42;
+// Sitting on a bench: the car seat's legs, but hands resting on the knees instead of a wheel
+function benchPose(P, T) {
+  for (const side of ['L', 'R']) {
+    POSE.leg(P, side, 1.45, 0.08);
+    POSE.knee(P, side, 1.35);
+    POSE.arm(P, side, 0.5, 0.18);
+    POSE.elbow(P, side, 0.95);
+  }
+  P.spine[0] = -0.1;
+  P.head[1] = Math.sin(T * 0.4) * 0.15; // looking about
+}
+const VENDOR_LINES = ['Cha garam! Gorom cha!', 'Dada, ar ek bhar?', 'Lebu cha, masala cha, dudh cha!', 'Biscuit nebe, dada?'];
 
 /*
  * The Kolkata "Adda" & Street Bench Mechanic:
@@ -14,9 +30,9 @@ export const ADDA_SPOTS = [
   { id: 'maidan', name: 'Maidan Tree Shade', x: -1763, z: 1730, yaw: -Math.PI / 3, desc: 'Lush greenery & Victoria Memorial vista' },
   { id: 'victoria', name: 'Victoria Memorial Gardens', x: -1642, z: 2336, yaw: Math.PI, desc: 'White marble monument & water reflection' },
   { id: 'collegest', name: 'College Street Boi Para', x: 542, z: -1094, yaw: Math.PI / 4, desc: 'Coffee House, old books & fierce debates' },
-  { id: 'howrah', name: 'Howrah Riverfront Forecourt', x: -1360, z: -1750, yaw: -Math.PI / 2, desc: 'Bustling chai stalls under Howrah Bridge' },
-  { id: 'millennium', name: 'Millennium Park Promenade', x: -1460, z: -779, yaw: Math.PI / 2, desc: 'Riverside promenade & passing steamers' },
-  { id: 'collegesq', name: 'College Square Heritage Tank', x: 543, z: -935, yaw: 0, desc: 'Historic swimming tank & student adda' },
+  { id: 'howrah', name: 'Howrah Riverfront Forecourt', x: -1557, z: -1797, yaw: -Math.PI / 2, desc: 'Bustling chai stalls under Howrah Bridge' },
+  { id: 'millennium', name: 'Millennium Park Promenade', x: -1451, z: -779, yaw: Math.PI / 2, desc: 'Riverside promenade & passing steamers' },
+  { id: 'collegesq', name: 'College Square Heritage Tank', x: 531, z: -889, yaw: 0, desc: 'Historic swimming tank & student adda' },
   { id: 'esplanade', name: 'Esplanade Tram Corner', x: -849, z: 322, yaw: -Math.PI / 4, desc: 'Vintage tram bells & street chai counters' },
   { id: 'allenpark', name: 'Park Street & Allen Park', x: -425, z: 1757, yaw: Math.PI / 3, desc: 'South Kolkata heartbeat & evening snacks' },
 ];
@@ -59,13 +75,121 @@ export class AddaManager {
     this.camOrbit = 0;
     this.spots = [];
     this.buildSpots();
+    // the adda's own camera, and the company round the bench (only while you're sitting)
+    this.camPos = new THREE.Vector3();
+    this.camLook = new THREE.Vector3();
+    this.crowd = [];
+    this.crowdSpot = null; // the bench the company is at (only ever the one nearest you)
+    this.lookT = 0;
+    this.chatT = 4;
+  }
+
+  /** Every frame: the nearest bench has its regulars, sitting or not; they leave when you go. */
+  ambient(dt, elapsed, pos, underground) {
+    this.lookT -= dt;
+    if (this.lookT <= 0 && !this.active) {
+      this.lookT = 0.5;
+      let best = null;
+      let bestD = 60;
+      for (const s of this.spots) {
+        const d = Math.hypot(pos.x - s.x, pos.z - s.z);
+        if (d < bestD) {
+          bestD = d;
+          best = s;
+        }
+      }
+      const cur = this.crowdSpot;
+      const keep = cur && !underground && Math.hypot(pos.x - cur.x, pos.z - cur.z) < 90;
+      if (!keep && cur) this.disperse();
+      if (!keep && best && !underground) this.gather(best);
+    }
+    if (!this.crowd.length) return;
+    for (const c of this.crowd) c.ch.update(dt, elapsed);
+    // within earshot, the friend and the uncle keep talking whether you join or not
+    if (!this.active && Math.hypot(pos.x - this.crowdSpot.x, pos.z - this.crowdSpot.z) < 15) {
+      this.chatT -= dt;
+      if (this.chatT <= 0) {
+        this.chatT = 7 + Math.random() * 5;
+        const vendor = Math.random() < 0.25;
+        const c = this.crowd[vendor ? 2 : Math.random() < 0.5 ? 0 : 1];
+        const lines = vendor ? VENDOR_LINES : ADDA_DIALOGUES;
+        this.hud.say(c.ch, lines[Math.floor(Math.random() * lines.length)], 3.8);
+      }
+    }
+  }
+
+  /** The way to the nearest water within 60 m, or null. */
+  faceWater(p) {
+    for (let d = 8; d <= 60; d += 4) {
+      let sx = 0;
+      let sz = 0;
+      for (let i = 0; i < 24; i++) {
+        const a = (i / 24) * Math.PI * 2;
+        if (this.world.isWet(p.x + Math.sin(a) * d, p.z + Math.cos(a) * d)) {
+          sx += Math.sin(a);
+          sz += Math.cos(a);
+        }
+      }
+      if (sx || sz) return Math.atan2(sx, sz);
+    }
+    return null;
+  }
+
+  /** A point beside the bench, in its own frame (x along the seat, z out in front), to world x, z. */
+  local(spot, lx, lz) {
+    const c = Math.cos(spot.yaw);
+    const s = Math.sin(spot.yaw);
+    return [spot.x + lx * c + lz * s, spot.z - lx * s + lz * c];
+  }
+
+  /** Someone at the adda: sitting on the bench or standing at lx, lz, facing yaw. */
+  place(ch, spot, lx, lz, yaw, sit) {
+    const [x, z] = this.local(spot, lx, lz);
+    ch.mesh.position.set(x, spot.y + (sit ? SEAT_DROP : 0), z);
+    ch.mesh.rotation.set(0, yaw, 0);
+    ch.mode = sit ? 'pose' : 'move';
+    ch.poseFn = sit ? benchPose : null;
+    ch.speed = 0;
+  }
+
+  /** A friend on the bench, an uncle holding forth, and the chaiwala at his counter; your seat stays free. */
+  gather(spot) {
+    const people = [
+      { lx: 0.5, lz: 0, yaw: spot.yaw, sit: true },
+      { lx: -1.5, lz: 0.9, yaw: spot.yaw + Math.atan2(1.3, -0.9), sit: false },
+      { lx: 1.6, lz: -0.35, yaw: spot.yaw, sit: false, vendor: true },
+    ];
+    for (const p of people) {
+      const ch = new Character(this.scene, randomLook());
+      this.scene.add(ch.mesh);
+      this.place(ch, spot, p.lx, p.lz, p.yaw, p.sit);
+      this.crowd.push({ ch, ...p });
+    }
+    this.crowdSpot = spot;
+  }
+  disperse() {
+    for (const c of this.crowd) {
+      c.ch.mesh.removeFromParent();
+      c.ch.mesh.geometry.dispose();
+    }
+    this.crowd = [];
+    this.crowdSpot = null;
+  }
+
+  /** The orbit round the bench: camOrbit round it, camPitch up over it, camDist out from it. */
+  frame(spot) {
+    const flat = Math.cos(this.camPitch) * this.camDist;
+    this.camLook.set(spot.x, spot.y + 0.9, spot.z);
+    this.camPos.set(spot.x - Math.sin(this.camOrbit) * flat, this.camLook.y + Math.sin(this.camPitch) * this.camDist, spot.z - Math.cos(this.camOrbit) * flat);
   }
 
   buildSpots() {
     const benchMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75 });
     const stallMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 });
 
-    for (const def of ADDA_SPOTS) {
+    for (const d0 of ADDA_SPOTS) {
+      // a bench by the river or a tank looks out over the water
+      const def = { ...d0, yaw: this.faceWater(d0) ?? d0.yaw };
       const y = this.world.height(def.x, def.z);
       const spot = { ...def, y };
 
@@ -156,14 +280,21 @@ export class AddaManager {
     this.active = true;
     this.currentSpot = spot;
     this.dialogueTimer = 1.2;
-    this.camOrbit = spot.yaw;
 
     player.mode = 'adda';
-    player.pos.set(spot.x, spot.y + 0.02, spot.z);
+    player.pos.set(spot.x, spot.y, spot.z);
     player.yaw = spot.yaw;
-    player.ch.mode = 'sit';
-    player.ch.mesh.position.copy(player.pos);
-    player.ch.mesh.rotation.set(0, player.yaw, 0);
+    this.place(player.ch, spot, -0.45, 0, spot.yaw, true);
+    if (this.crowdSpot !== spot) {
+      this.disperse();
+      this.gather(spot);
+    }
+    // the camera starts in front, a little to one side, so you see the company; it drifts round from there
+    this.camOrbit = spot.yaw + Math.PI + 0.6;
+    this.camPitch = 0.18;
+    this.camDist = 5.5;
+    this.idleT = 0;
+    this.frame(spot);
 
     if (this.audio) this.audio.pickup();
     this.hud.notify(`☕ KOLKATA ADDA: ${spot.name.toUpperCase()}`, `${spot.desc} · +Health & Sunset View`, '#5dff9e');
@@ -178,6 +309,7 @@ export class AddaManager {
     if (player.mode === 'adda') {
       player.mode = 'foot';
       player.ch.mode = 'move';
+      player.ch.poseFn = null;
       // Step slightly forward off the bench
       const fwdX = Math.sin(player.yaw) * 0.8;
       const fwdZ = Math.cos(player.yaw) * 0.8;
@@ -206,16 +338,14 @@ export class AddaManager {
       player.hp = Math.min(100, player.hp + 14 * dt);
     }
 
-    // 3. Keep character seated facing the vista
-    player.ch.mode = 'sit';
-    player.pos.set(spot.x, spot.y + 0.02, spot.z);
+    // 3. Keep character seated facing the vista, and the company going
+    player.pos.set(spot.x, spot.y, spot.z);
     player.yaw = spot.yaw;
-    player.ch.mesh.position.copy(player.pos);
-    player.ch.mesh.rotation.set(0, player.yaw, 0);
+    this.place(player.ch, spot, -0.45, 0, spot.yaw, true);
     player.ch.update(dt, elapsed);
 
     // 4. HUD prompt to exit
-    player.prompt = { key: 'E', text: 'Stand Up · Watching the city', key2: 'WASD', text2: 'Move to Exit' };
+    player.prompt = { key: 'E', text: 'Stand Up', key2: 'MOUSE', text2: 'Look Around', key3: 'SCROLL', text3: 'Zoom' };
 
     // 5. Exit triggers: E, W, A, S, D, Space, or F
     if (input.hit('KeyE') || input.hit('KeyF') || input.hit('Space') ||
@@ -228,21 +358,24 @@ export class AddaManager {
     this.dialogueTimer -= dt;
     if (this.dialogueTimer <= 0) {
       this.dialogueTimer = 5.5 + Math.random() * 3.5;
-      const text = ADDA_DIALOGUES[Math.floor(Math.random() * ADDA_DIALOGUES.length)];
-      this.hud.say(player.ch, text, 3.8);
+      // whoever's turn it is: the friend, the uncle, now and then the chaiwala, sometimes you
+      const r = Math.random();
+      const who = r < 0.15 ? player.ch : this.crowd[r < 0.3 ? 2 : r < 0.65 ? 0 : 1]?.ch || player.ch;
+      const vendor = this.crowd[2] && who === this.crowd[2].ch;
+      const lines = vendor ? VENDOR_LINES : ADDA_DIALOGUES;
+      this.hud.say(who, lines[Math.floor(Math.random() * lines.length)], 3.8);
     }
 
-    // 7. Cinematic slow camera orbit framing the scenery
-    this.camOrbit += dt * 0.05;
-    const camDist = 5.5;
-    const camH = 1.9;
-    const cx = spot.x - Math.sin(this.camOrbit) * camDist;
-    const cz = spot.z - Math.cos(this.camOrbit) * camDist;
-    const cy = spot.y + camH;
-
-    if (game.cam) {
-      game.cam.pos.set(cx, cy, cz);
-      game.cam.look.set(spot.x, spot.y + 0.9, spot.z);
+    // 7. The camera: the mouse looks round the bench and the wheel zooms; left alone, it drifts slowly round
+    const { dx, dy } = input.mouse;
+    if (dx || dy) {
+      this.camOrbit -= dx * 0.004;
+      this.camPitch = clamp(this.camPitch + dy * 0.003, -0.05, 1.2);
+      this.idleT = 4;
     }
+    if (input.wheelSteps) this.camDist = clamp(this.camDist + input.wheelSteps * 0.8, 2.5, 10);
+    if (this.idleT > 0) this.idleT -= dt;
+    else this.camOrbit += dt * 0.05;
+    this.frame(spot);
   }
 }

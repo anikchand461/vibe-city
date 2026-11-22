@@ -407,6 +407,10 @@ export class World {
     }
     return null;
   }
+  /** Open water at ground level: the river or a pond, not a bridge deck or a jetty above it. */
+  isWet(x, z) {
+    return this.height(x, z) <= 0.15 && (this.overWater(x, z) || (!!this.river && inPoly(this.river, x, z)));
+  }
   overWater(x, z) {
     let w = false;
     this.waterGrid.query(x, x, z, z, (p) => {

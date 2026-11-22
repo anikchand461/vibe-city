@@ -508,6 +508,8 @@ export class Player {
     // While strafing the body faces the camera but moves where the keys say
     const mvx = strafe && ml > 0.01 ? mx : Math.sin(this.yaw);
     const mvz = strafe && ml > 0.01 ? mz : Math.cos(this.yaw);
+    const fromX = this.pos.x;
+    const fromZ = this.pos.z;
     this.pos.x += mvx * this.speed * dt;
     this.pos.z += mvz * this.speed * dt;
 
@@ -531,6 +533,16 @@ export class Player {
       if (hitCar && c.speed > 5) {
         this.knockDown(c.vel.x * 0.8, c.vel.y * 0.8);
         this.hurt(c.speed * 2.2 * Math.sqrt(c.def.mass), c.x, c.z);
+      }
+    }
+    // No walking on the Hooghly: the bank has gaps beside bridges and jetties, so stop at the water's edge
+    // (sliding along it), unless already in (then any way out is allowed)
+    if (!this.underground && this.world.isWet(this.pos.x, this.pos.z) && !this.world.isWet(fromX, fromZ)) {
+      if (!this.world.isWet(this.pos.x, fromZ)) this.pos.z = fromZ;
+      else if (!this.world.isWet(fromX, this.pos.z)) this.pos.x = fromX;
+      else {
+        this.pos.x = fromX;
+        this.pos.z = fromZ;
       }
     }
 

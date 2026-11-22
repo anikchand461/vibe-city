@@ -384,8 +384,8 @@ function updateCamera(dt) {
   }
   if (cricket && cricket.active && cricket.camera(camera, dt)) return;
   if (adda && adda.active) {
-    camera.position.copy(cam.pos);
-    camera.lookAt(cam.look);
+    camera.position.copy(adda.camPos);
+    camera.lookAt(adda.camLook);
     camera.fov = damp(camera.fov, 56, 4, dt);
     camera.updateProjectionMatrix();
     return;
@@ -1603,6 +1603,7 @@ function loop() {
     const txt = weather.mode === 'live' && w.text ? `${w.icon} ${w.text}` : '';
     if (el.textContent !== txt) el.textContent = txt;
   }
+  if (adda) adda.ambient(dt, elapsed, player.focus, player.underground);
   const dayDt = adda && adda.active ? dt * 12 : dt;
   day.update(dayDt, focus, camera.position);
   world.update(dt, elapsed, day.night, day.sunDir, camera.position);
