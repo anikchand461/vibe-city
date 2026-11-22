@@ -89,7 +89,7 @@ class Kit {
 }
 
 /** Centre, main axis angle and half extents of a footprint. */
-function frame(flat) {
+export function frame(flat) {
   const n = flat.length / 2;
   let cx = 0;
   let cz = 0;

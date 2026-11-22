@@ -30,6 +30,8 @@ export const ACHIEVEMENTS = [
   { id: 'addaPhilosopher', name: 'Adda Baaj', desc: 'Sit down for tea & philosophize at a Kolkata Adda' },
   { id: 'fastTraveler', name: 'Commuter', desc: 'Take Metro or Ferry fast-travel across the city' },
   { id: 'fashionista', name: 'Babu of Bengal', desc: 'Customise your outfit at New Market or College Street' },
+  { id: 'gullyChamp', name: 'Para Champion', desc: 'Win a gully cricket match on the Maidan' },
+  { id: 'edenHero', name: 'Eden Hero', desc: 'Win a match at Eden Gardens' },
 ];
 
 const load = () => {

@@ -21,6 +21,7 @@ import { Boat, RiverTraffic, buildGhats } from './boats.js';
 import { MapView, routeLength } from './mapview.js';
 import { Station } from './station.js';
 import { AddaManager } from './adda.js';
+import { Cricket } from './cricket.js';
 import { Voices } from './voice.js';
 import { Rides } from './ride.js';
 import { Interiors, interiorTarget, setInteriorNight } from './interiors.js';
@@ -85,7 +86,7 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.3, 3200);
 const frame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
 
-let world, day, fx, post, hud, gameplay, traffic, peds, player, rail, combat, metro, riverTraffic, mapView, station, adda, rides, boards, progress, jobs, weather, wardrobe;
+let world, day, fx, post, hud, gameplay, traffic, peds, player, rail, combat, metro, riverTraffic, mapView, station, adda, rides, boards, progress, jobs, weather, wardrobe, cricket;
 const vehicles = [];
 const audio = new AudioEngine();
 const voices = new Voices(audio);
@@ -193,6 +194,9 @@ const game = {
   },
   get jobs() {
     return jobs;
+  },
+  get cricket() {
+    return cricket;
   },
   get adda() {
     return adda;
@@ -351,6 +355,7 @@ function updateCamera(dt) {
     camera.updateProjectionMatrix();
     return;
   }
+  if (cricket && cricket.active && cricket.camera(camera, dt)) return;
   if (adda && adda.active) {
     camera.position.copy(cam.pos);
     camera.lookAt(cam.look);
@@ -610,6 +615,7 @@ async function boot() {
   station = new Station(scene, world, hud, rail);
   station.game = game;
   adda = new AddaManager(scene, world, hud, audio);
+  cricket = new Cricket(game, scene, world, hud, audio);
   rides = new Rides(game, scene, world);
   const sp = station.spawn || [(BOUNDS.x0 + BOUNDS.x1) / 2, (BOUNDS.z0 + BOUNDS.z1) / 2];
   world.spawn = { x: sp[0], z: sp[1] };
@@ -1281,6 +1287,7 @@ let last = 0;
 const blipsFn = () => {
   const b = gameplay.blips();
   b.push(...jobs.blips());
+  if (cricket) b.push(...cricket.blips());
   if (waypoint) b.push({ x: waypoint.x, z: waypoint.z, color: '#ff3fa4', r: 9, always: true, label: '★' });
   return b;
 };

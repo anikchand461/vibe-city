@@ -878,6 +878,8 @@ const leg = (P, side, f, o = 0) => {
 const knee = (P, side, b) => {
   P['kn' + side][0] = b;
 };
+/** Pose helpers for mini-games that drive a character with their own poses (mode 'pose', poseFn). */
+export const POSE = { arm, elbow, leg, knee };
 
 /**
  * Gait cycle. phase runs 0..2π per stride (two steps); the left thigh is fully
@@ -1168,7 +1170,8 @@ export class Character {
 
     this.speed = 0;
     this.phase = 0;
-    this.mode = 'move'; // move | air | sit | ride | down
+    this.mode = 'move'; // move | air | sit | ride | down | pose (poseFn(P, T) sets the pose)
+    this.poseFn = null;
     this.emote = null;
     this.emoteT = 0;
     this.atk = null; // jab | cross | kick | swing
@@ -1268,6 +1271,9 @@ export class Character {
       P.head[0] = -0.3;
       P.head[1] = 0.5;
       k = 7;
+    } else if (this.mode === 'pose') {
+      if (this.poseFn) this.poseFn(P, T);
+      k = this.poseK || 14;
     } else if (this.mode === 'air') {
       leg(P, 'L', 0.55);
       leg(P, 'R', 0.15);

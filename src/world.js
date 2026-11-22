@@ -146,6 +146,9 @@ const NAMED_TONES = [
 /* =========================================================
    World
    ========================================================= */
+/** Open ground on the Maidan kept clear of trees: the gully cricket pitch (cricket.js). */
+export const MAIDAN_GROUND = { x: -1396, z: 1843, r: 42 };
+
 export class World {
   constructor(scene) {
     this.scene = scene;
@@ -1117,6 +1120,7 @@ export class World {
     const palms = [];
     const blocked = (x, z, r) => {
       if (this.collideCircle(x, z, r) || this.overWater(x, z)) return true;
+      if (Math.hypot(x - MAIDAN_GROUND.x, z - MAIDAN_GROUND.z) < MAIDAN_GROUND.r) return true;
       const n = this.graph.nearest(x, z, 30);
       return n && n.d < n.e.w / 2 + 1.2;
     };
