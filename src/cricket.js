@@ -490,7 +490,7 @@ export class Cricket {
 
   /** Map markers for both grounds. */
   blips() {
-    return Object.values(this.venues).map((V) => ({ x: V.entry.x, z: V.entry.z, color: '#7dffb0', r: 7, label: '🏏' }));
+    return Object.values(this.venues).map((V) => ({ x: V.entry.x, z: V.entry.z, color: '#7dffb0', r: 11, label: '🏏', name: V.kind === 'eden' ? 'Eden Gardens cricket' : 'Maidan gully cricket' }));
   }
 
   /** On foot near a ground: offer a game. */

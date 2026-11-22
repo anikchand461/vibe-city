@@ -380,6 +380,16 @@ export class MapView {
         g.textBaseline = 'middle';
         g.fillText(b.label, X(b.x), Y(b.z) + 1);
       }
+      if (b.name) {
+        g.font = 'bold 13px Rajdhani';
+        g.textAlign = 'center';
+        g.textBaseline = 'top';
+        g.lineWidth = 3;
+        g.strokeStyle = '#000';
+        g.strokeText(b.name, X(b.x), Y(b.z) + (b.r || 8) * 0.8 + 3);
+        g.fillStyle = b.color;
+        g.fillText(b.name, X(b.x), Y(b.z) + (b.r || 8) * 0.8 + 3);
+      }
     }
     // Waypoint flag
     if (waypoint) {

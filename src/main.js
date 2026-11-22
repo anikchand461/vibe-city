@@ -1408,7 +1408,7 @@ function loop() {
   if ((state === 'play' && input.hit('KeyM')) || (state === 'map' && (input.hit('KeyM') || input.hit('Escape')))) setMap(state === 'play');
   if (state === 'map') {
     if (waypoint && !route) route = world.graph.route(player.focus.x, player.focus.z, waypoint.x, waypoint.z);
-    mapView.draw(player, gameplay.blips(), waypoint, route, player.vehicle && player.mode !== 'foot' ? vehicleHeading(player.vehicle) : player.yaw);
+    mapView.draw(player, cricket ? [...gameplay.blips(), ...cricket.blips()] : gameplay.blips(), waypoint, route, player.vehicle && player.mode !== 'foot' ? vehicleHeading(player.vehicle) : player.yaw);
     input.endFrame();
     return;
   }
