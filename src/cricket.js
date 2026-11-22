@@ -9,9 +9,10 @@ import { clamp, damp, lerp, merge } from './utils.js';
  * Cricket: a pick-up gully match on the Maidan, or a proper match at Eden Gardens.
  *
  * Pay to play (the stake at the Maidan, a ticket at Eden), win and take home the
- * prize. Toss, two innings, the chase. You bat (time the shot with SPACE, aim it
- * with A/D, loft with W, defend with S, then call the runs) and you bowl (line and
- * length with WASD, pace / swing / spin, hit the green on the run-up meter). The
+ * prize. Toss, two innings, the chase. You bat (SPACE as the timing needle crosses
+ * the green; the shot follows the line of the ball, W lofts it, A/D steer it, and
+ * your partner calls the runs) and you bowl (SPACE to run in and again in the
+ * green; WASD and 1-3 for line, length and pace / swing / spin if you want). The
  * rest of both sides are run by the game: bowlers, batters, fielders chasing,
  * catching and throwing to the keeper.
  *
@@ -62,7 +63,8 @@ export const RULES = {
     throwSpeed: 18,
     aiTiming: 0.55,
     catchP: 0.5,
-    timeScale: 0.85,
+    timeScale: 0.72,
+    forgive: 0.5,
     you: 'Para XI',
     them: ['Shyambazar Tigers', 'Gariahat Boys', 'Behala Blasters', 'Dum Dum Dynamos', 'Kalighat Kings', 'Bagbazar Bullets'],
   },
@@ -88,7 +90,8 @@ export const RULES = {
     throwSpeed: 24,
     aiTiming: 0.5,
     catchP: 0.82,
-    timeScale: 0.78,
+    timeScale: 0.66,
+    forgive: 0.6,
     you: 'Kolkata XI',
     them: ['Mumbai XI', 'Chennai XI', 'Delhi XI', 'Bengaluru XI', 'Hyderabad XI', 'Punjab XI', 'Rajasthan XI'],
   },
@@ -137,6 +140,7 @@ const gauss = () => (Math.random() + Math.random() + Math.random() - 1.5) / 0.75
 
 /* ---------- Models ---------- */
 let MATS = null;
+const TRAIL = 12; // ghost balls behind the ball in flight
 function mats() {
   if (MATS) return MATS;
   MATS = {
@@ -151,6 +155,8 @@ function mats() {
     shadow: new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35, depthWrite: false }),
     marker: new THREE.MeshBasicMaterial({ color: 0xffe14d, transparent: true, opacity: 0.85, depthWrite: false }),
     pitchMark: new THREE.MeshBasicMaterial({ color: 0xff3fa4, transparent: true, opacity: 0.7, depthWrite: false }),
+    hitRing: new THREE.MeshBasicMaterial({ color: 0x5dff9e, transparent: true, opacity: 0, depthWrite: false }),
+    trail: Array.from({ length: TRAIL }, (_, i) => new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.42 * (1 - i / TRAIL), depthWrite: false })),
     rope: new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.6 }),
     stone: new THREE.MeshStandardMaterial({ color: 0xe9e6dc, roughness: 0.9 }),
     brick: new THREE.MeshStandardMaterial({ color: 0x9c4a2e, roughness: 0.9 }),
@@ -548,8 +554,19 @@ export class Cricket {
     this.shadow = new THREE.Mesh(new THREE.CircleGeometry(0.06, 12).rotateX(-Math.PI / 2), mats().shadow);
     this.marker = new THREE.Mesh(new THREE.RingGeometry(0.14, 0.2, 20).rotateX(-Math.PI / 2), mats().marker);
     this.pitchMark = new THREE.Mesh(new THREE.RingGeometry(0.08, 0.13, 16).rotateX(-Math.PI / 2), mats().pitchMark);
-    V.root.add(this.ball, this.shadow, this.marker, this.pitchMark);
-    this.ball.visible = this.shadow.visible = this.marker.visible = this.pitchMark.visible = false;
+    // where a well-timed shot meets the ball: lights up as the ball arrives
+    this.hitRing = new THREE.Mesh(new THREE.RingGeometry(0.32, 0.42, 28).rotateX(-Math.PI / 2), mats().hitRing);
+    this.hitRing.position.set(BAT_X - 0.15, 0.065, Z_HIT);
+    const ghost = new THREE.SphereGeometry(BALL_R * 0.9, 8, 6);
+    this.trail = mats().trail.map((m, i) => {
+      const t = new THREE.Mesh(ghost, m);
+      t.scale.setScalar(1 - (i / TRAIL) * 0.6);
+      t.visible = false;
+      return t;
+    });
+    this.trailPts = this.trail.map(() => new THREE.Vector3());
+    V.root.add(this.ball, this.shadow, this.marker, this.pitchMark, this.hitRing, ...this.trail);
+    this.ball.visible = this.shadow.visible = this.marker.visible = this.pitchMark.visible = this.hitRing.visible = false;
     if (kind === 'eden') {
       for (const [x, z, role] of [[-1.1, HALF + 2.4, 'end'], [24, -HALF + 1.5, 'leg']]) {
         const u = this.spawn({ female: false, skin: '#8a5a3c', shirt: '#f4f4f0', pants: '#202022', shoes: '#1a1612', hair: '#cfcfcf', longSleeve: true, scale: 1 });
@@ -590,6 +607,10 @@ export class Cricket {
     this.shadow.removeFromParent();
     this.marker.removeFromParent();
     this.pitchMark.removeFromParent();
+    this.hitRing.removeFromParent();
+    this.hitRing.geometry.dispose();
+    for (const t of this.trail) t.removeFromParent();
+    this.trail[0].geometry.dispose();
     this.scene.remove(this.light);
     for (const s of [1, -1]) this.resetStumps(this.V.stumps[s]);
     this.scene.add(pl.ch.mesh);
@@ -748,7 +769,9 @@ export class Cricket {
     ns.pose = standPose;
     for (const u of this.umpires) u.signal = null;
     for (const s of [1, -1]) this.resetStumps(this.V.stumps[s]);
-    this.ball.visible = this.shadow.visible = this.pitchMark.visible = false;
+    this.ball.visible = this.shadow.visible = this.pitchMark.visible = this.hitRing.visible = false;
+    this.el.meter.classList.add('hidden');
+    this.el.mlabel.textContent = '';
     this.d = null;
     this.shot = null;
     this.live = null;
@@ -891,7 +914,7 @@ export class Cricket {
     this.beginRunup();
   }
 
-  /** You bowl: set line and length with WASD, the type with 1-3, SPACE to run in. */
+  /** You bowl: SPACE runs in at once; WASD and 1-3 change line, length and type first if you like. */
   tickAim(dt) {
     const k = this.input.keys;
     const a = this.aimAt;
@@ -905,7 +928,7 @@ export class Cricket {
     if (this.input.hit('Digit2')) a.type = 'swing';
     if (this.input.hit('Digit3')) a.type = 'spin';
     this.marker.position.set(a.x, 0.06, a.z);
-    this.help(`<b>BOWLING</b> · <kbd>A</kbd><kbd>D</kbd> line · <kbd>W</kbd><kbd>S</kbd> length (${lengthName(a.z)}) · <kbd>1</kbd> Pace <kbd>2</kbd> Swing <kbd>3</kbd> Spin: <b>${a.type.toUpperCase()}</b> · <kbd>SPACE</kbd> run in`);
+    this.help(`<kbd>SPACE</kbd> bowl &nbsp;·&nbsp; <b>${a.type.toUpperCase()}</b>, ${lengthName(a.z)} <span class="ck-dim">· <kbd>WASD</kbd> aim · <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> pace / swing / spin</span>`);
     if (this.input.hit('Space')) {
       this.meter = { v: 0, hit: null };
       this.beginRunup();
@@ -921,9 +944,29 @@ export class Cricket {
     this.moveTo(c, 0.55, HALF + 0.3, this.V.kind === 'eden' ? 7 : 5);
     c.runTime = runup / (this.V.kind === 'eden' ? 7 : 5);
     this.inn.st.lift = 0;
-    if (this.humanBats) this.help('<b>BATTING</b> · hold <kbd>A</kbd> off side / <kbd>D</kbd> leg side · hold <kbd>W</kbd> to loft, <kbd>S</kbd> to defend · <kbd>SPACE</kbd> to play the shot, timed as the ball reaches you');
-    else this.help('<b>RUN-UP</b> · press <kbd>SPACE</kbd> when the needle is in the <b style="color:#5dff9e">green</b>');
-    this.el.meter.classList.toggle('hidden', this.humanBats);
+    if (this.humanBats) {
+      this.help('<kbd>SPACE</kbd> as the needle hits the <b class="ck-g">green</b> <span class="ck-dim">· hold <kbd>W</kbd> to loft · <kbd>A</kbd>/<kbd>D</kbd> steer · <kbd>S</kbd> block</span>');
+      this.el.meter.classList.add('hidden');
+    } else {
+      this.help('<kbd>SPACE</kbd> in the <b class="ck-g">green</b> to bowl it on the spot');
+      this.setMeter(0.72, 0.95, this.R.noBalls ? 1.0 : null, 'RELEASE');
+      this.el.meter.classList.remove('hidden');
+    }
+  }
+
+  /** The timing bar: v runs 0 to 1.15 across it; green from a to b, red (no-ball / too late) past red. */
+  setMeter(a, b, red, label) {
+    const at = (v) => `${clamp(v / 1.15, 0, 1) * 100}%`;
+    this.el.zone.style.left = at(a);
+    this.el.zone.style.width = `calc(${at(b)} - ${at(a)})`;
+    this.el.red.style.display = red === null ? 'none' : '';
+    if (red !== null) this.el.red.style.left = at(red);
+    this.el.mlabel.textContent = label;
+    this.el.needle.classList.remove('done');
+  }
+  setNeedle(v, hot) {
+    this.el.needle.style.left = `${clamp(v / 1.15, 0, 1) * 100}%`;
+    this.el.meter.classList.toggle('hot', !!hot);
   }
 
   tickRunup(dt) {
@@ -932,7 +975,7 @@ export class Cricket {
     if (!this.humanBats) {
       const m = this.meter;
       m.v = this.phaseT / c.runTime;
-      this.el.needle.style.left = `${clamp(m.v / 1.15, 0, 1) * 100}%`;
+      if (m.hit === null) this.setNeedle(m.v, m.v >= 0.72 && m.v <= 0.95);
       if (m.hit === null && this.input.hit('Space')) m.hit = m.v;
     }
     if (c.tx !== null) return;
@@ -942,15 +985,17 @@ export class Cricket {
       c.bowlU = 0;
       if (!this.humanBats) {
         // your ball: where you aimed, as true as your timing
+        // no press at all is just an ordinary ball, never a no-ball
         const m = this.meter;
-        const v = m.hit === null ? 1.2 : m.hit;
-        const off = v >= 0.78 && v <= 0.92 ? 0 : Math.abs(v - 0.85);
+        const v = m.hit;
+        const off = v === null ? 0.12 : v >= 0.72 && v <= 0.95 ? 0 : v < 0.72 ? 0.72 - v : v - 0.95;
         const err = 0.05 + off * 1.3;
         const a = this.aimAt;
         this.d = this.makeDelivery(a.type, a.x + gauss() * err, a.z + gauss() * err * 2, off === 0 ? 1.05 : 1);
-        this.d.noBall = this.R.noBalls && v > 0.98;
+        this.d.noBall = this.R.noBalls && v !== null && v > 1.0;
         this.el.meter.classList.add('hidden');
-        this.flash(off === 0 ? 'PERFECT RELEASE' : off < 0.15 ? 'GOOD' : 'LOOSE', 0.9);
+        if (this.d.noBall) this.flash('OVERSTEPPED!', 0.9, '#ff6b6b');
+        else this.flash(off === 0 ? 'PERFECT RELEASE' : off < 0.15 ? 'GOOD BALL' : 'LOOSE', 0.9, off === 0 ? '#ffd23f' : off < 0.15 ? '#5dff9e' : '#ffb36b');
       }
     }
     c.bowlU += dt / 0.55;
@@ -968,7 +1013,23 @@ export class Cricket {
     // the pitching spot flashes up a moment before the ball lands
     this.pitchMark.position.set(d.pitch ? d.pitch.x : 0, 0.06, d.pitch ? d.pitch.z : 0);
     this.swingAt = null;
+    this.trailReset = true;
     this.ai = this.humanBats ? null : this.aiShot(d);
+    // your timing bar: the needle reaches the middle of the green as the ball reaches the sweet spot
+    this.bat = null;
+    if (this.humanBats && d.hit) {
+      const f = this.R.forgive;
+      const early = d.at(Z_HIT + 1.1 / f);
+      const late = d.at(Z_HIT - 0.95 / f);
+      // the bar covers only the last half second, so the green is wide enough to read
+      const k = 0.85 / clamp(d.hit.t, 0.3, 0.5);
+      const v = (t) => 0.85 - (d.hit.t - t) * k;
+      this.bat = { v, a: early ? v(early.t) : 0.75, b: late ? v(late.t) : 0.95 };
+      this.setMeter(this.bat.a, this.bat.b, this.bat.b, 'TIMING');
+      this.setNeedle(0);
+      this.el.meter.classList.remove('hidden');
+      this.hitRing.visible = true;
+    }
     this.moveTo(this.bowler, 0.9, HALF - 3.5, 3);
   }
 
@@ -985,12 +1046,20 @@ export class Cricket {
     const k = this.input.keys;
     let play = null;
     if (this.humanBats) {
+      const bt = this.bat;
+      if (bt && this.swingAt === null) {
+        const v = bt.v(t);
+        this.setNeedle(v, v >= bt.a && v <= bt.b);
+        this.hitRing.material.opacity = v >= bt.a && v <= bt.b ? 0.95 : clamp((v - 0.45) / (bt.a - 0.45), 0, 1) * 0.35;
+      }
       if (this.swingAt === null && this.input.hit('Space')) {
         this.swingAt = t;
-        play = { dir: k.has('KeyA') ? -1 : k.has('KeyD') ? 1 : 0, loft: k.has('KeyW'), defend: k.has('KeyS'), errM: b.z - Z_HIT };
+        const raw = b.z - Z_HIT;
+        play = { dir: k.has('KeyA') ? -1 : k.has('KeyD') ? 1 : this.autoDir(d), loft: k.has('KeyW'), defend: k.has('KeyS'), errM: raw * this.R.forgive, you: true };
         st.loft = play.loft;
         st.swing = 0;
-        if (play.errM > 3.2) play.miss = true; // far too early
+        if (raw > 3.6) play.miss = true; // far too early
+        if (bt) this.el.needle.classList.add('done');
       }
     } else if (this.ai && !this.ai.done && (this.ai.leave ? false : b.z <= Z_HIT + this.ai.errM)) {
       this.ai.done = true;
@@ -999,12 +1068,20 @@ export class Cricket {
       st.swing = 0;
     }
     if (play && !play.miss) {
-      const reach = Math.abs(b.x - BAT_X) < 1.25 && b.y < 2.1;
+      const reach = Math.abs(b.x - BAT_X) < (play.you ? 1.5 : 1.25) && b.y < 2.1;
       const res = reach ? this.playShot(play, b) : null;
       if (res) return this.goLive(res);
     }
     // past the bat: the pad, the stumps, or the keeper's gloves
     if (t >= d.dur || b.z <= -HALF - 2.2) this.missed(play);
+  }
+
+  /** No direction held: play with the line, pull the short ball, drive the full one straight. */
+  autoDir(d) {
+    const h = d.hit || d.crease;
+    if (!h) return 0;
+    if (d.pitch && d.pitch.z > -3.6 && h.y > 0.8) return 1;
+    return h.x < -0.18 ? -1 : h.x > 0.28 ? 1 : 0;
   }
 
   /** Turn a shot into a ball going somewhere (or null for a miss). */
@@ -1053,9 +1130,10 @@ export class Cricket {
     this.shot = { theta };
     const p = new THREE.Vector3(b.x, Math.max(0.25, Math.min(b.y, 1.3)), b.z);
     this.thock(kind === 'hit' ? 0.3 + q * 0.5 : 0.25);
-    if (q > 0.9 && kind === 'hit' && !play.defend) this.flash('PERFECT!', 0.7);
-    else if (kind === 'hit' && e > 0.6) this.flash('EARLY', 0.6);
-    else if (kind === 'hit' && e < -0.3) this.flash('LATE', 0.6);
+    if (q > 0.9 && kind === 'hit' && !play.defend) this.flash('PERFECT!', 0.8, '#ffd23f');
+    else if (kind === 'hit' && e > 0.6) this.flash('A BIT EARLY', 0.6, '#ffb36b');
+    else if (kind === 'hit' && e < -0.3) this.flash('A BIT LATE', 0.6, '#ffb36b');
+    else if (kind !== 'hit' && play.you) this.flash(kind === 'edge' ? 'TOO LATE — EDGED' : 'TOO EARLY', 0.7, '#ff6b6b');
     if (kind === 'edge') this.say(pick(SAY.edge));
     return { p, v, kind, q, defend: play.defend };
   }
@@ -1096,18 +1174,18 @@ export class Cricket {
   goLive(shot) {
     this.phase = 'live';
     this.phaseT = 0;
-    this.pitchMark.visible = false;
+    this.pitchMark.visible = this.hitRing.visible = false;
+    this.el.meter.classList.add('hidden');
     this.live = { p: shot.p, v: shot.v, bounces: 0, held: null, holdT: 0, thrown: null, kind: shot.kind, runsDone: 0, boundary: null, edge: shot.kind === 'edge' };
     this.ball.position.copy(shot.p);
     this.run = { going: false, queued: 0, back: false, done: 0, t: 0 };
     this.camMode = shot.v.length() > 12 && !shot.defend ? 'follow' : 'broadcast';
     // fielders read it: who gets there first
     this.planChase();
-    // the batters decide (or you call)
-    if (!this.humanBats) {
-      this.aiRun();
-      this.help('<b>FIELDING</b> · your side chases it down and throws it in');
-    } else this.help('<kbd>SPACE</kbd> run (again for more) · <kbd>S</kbd> send them back');
+    // the batters judge the run themselves; batting, you can push for more or hold them back
+    this.aiRun();
+    if (!this.humanBats) this.help('Your fielders chase it down and throw it in');
+    else this.help('Running is automatic <span class="ck-dim">· <kbd>SPACE</kbd> push for another · <kbd>S</kbd> stay put</span>');
     this.inn.st.swing = Math.max(this.inn.st.swing, 0);
   }
 
@@ -1217,7 +1295,7 @@ export class Cricket {
         const tz = L.thrown.end * HALF;
         if (Math.abs(ball.z - tz) < 1.4 && Math.abs(ball.x) < 1.5) {
           const out = this.runOutCheck(L.thrown.end);
-          if (out) {
+          if (out !== null) {
             this.knockStumps(L.thrown.end);
             return this.endBall({ ...this.completed(), out: 'runout', who: out });
           }
@@ -1267,7 +1345,7 @@ export class Cricket {
             L.v.set(0, 0, 0);
             c.tx = c.tz = null;
             for (const h of L.chasers) h.c.chasing = false;
-            if (!this.humanBats) this.aiSendBack(c);
+            this.aiSendBack(c);
             break;
           }
         }
@@ -1291,10 +1369,13 @@ export class Cricket {
         if (!r.going) this.startRun();
         else r.queued = Math.min(r.queued + 1, 3);
       }
-      if (this.input.hit('KeyS') && r.going && !r.back) {
-        r.back = true;
+      if (this.input.hit('KeyS')) {
+        r.hold = true;
         r.queued = 0;
-        for (const c of inn.batters) this.moveTo(c, c.fromX, c.fromZ, R.batSpeed);
+        if (r.going && !r.back) {
+          r.back = true;
+          for (const c of inn.batters) this.moveTo(c, c.fromX, c.fromZ, R.batSpeed);
+        }
       }
     }
     if (!r.going) return;
@@ -1311,7 +1392,7 @@ export class Cricket {
     if (r.queued > 0) {
       r.queued--;
       this.startRun();
-    } else if (!this.humanBats) this.aiRun();
+    } else if (!r.hold) this.aiRun();
   }
   startRun() {
     const inn = this.inn;
@@ -1363,8 +1444,12 @@ export class Cricket {
     const runT = (2 * CREASE) / R.batSpeed;
     const ball = this.ball.position;
     let backT;
-    if (L.held) backT = 0.6 + (2 * HALF) / R.throwSpeed;
-    else {
+    // never set off with the throw already on its way in
+    if (L.thrown) return;
+    if (L.held) {
+      const c = L.held;
+      backT = Math.max(0, 0.6 - L.holdT) + Math.min(Math.hypot(c.x, c.z - HALF), Math.hypot(c.x, c.z + HALF)) / R.throwSpeed;
+    } else {
       const h = L.chasers && L.chasers[0];
       const fieldT = h ? Math.max(0, h.t - this.phaseT) : 3;
       const throwD = h ? Math.min(Math.hypot(h.x, h.z - HALF), Math.hypot(h.x, h.z + HALF)) : 20;
@@ -1374,7 +1459,9 @@ export class Cricket {
     const h0 = L.chasers && L.chasers[0];
     const heading4 = !L.held && !(h0 && h0.cut) && L.pts && Math.hypot(L.pts[L.pts.length - 1][1], L.pts[L.pts.length - 1][3]) > R.boundary - 3;
     const chase = inn.target ? (inn.target - inn.runs) / Math.max(1, R.overs * 6 - inn.balls) : 1;
-    const margin = (this.V.kind === 'eden' ? 0.15 : -0.05) - clamp(chase - 1.2, 0, 1) * 0.3;
+    // a ball stopped near the pitch is picked up quicker than it looks: only a sharp single
+    const close = h0 && Math.hypot(h0.x, h0.z) < 9 ? 0.5 : 0;
+    const margin = (this.V.kind === 'eden' ? 0.3 : 0.08) + close - clamp(chase - 1.2, 0, 1) * 0.3;
     if ((heading4 && this.run.done < 2) || backT > runT + margin) {
       if (Math.hypot(ball.x, ball.z + HALF) < 5 && !L.held && L.v.length() < 3) return;
       this.startRun();
@@ -1639,6 +1726,18 @@ export class Cricket {
     }
     // ball shadow
     if (this.ball.visible) this.shadow.position.set(this.ball.position.x, 0.055, this.ball.position.z);
+    // the trail: ghost balls along the last few frames of flight
+    const moving = this.ball.visible && (this.phase === 'flight' || (this.phase === 'live' && this.live && !this.live.held));
+    const pts = this.trailPts;
+    if (this.trailReset || !moving) for (const q of pts) q.copy(this.ball.position);
+    this.trailReset = false;
+    for (let i = pts.length - 1; i > 0; i--) pts[i].copy(pts[i - 1]);
+    pts[0].copy(this.ball.position);
+    this.trail.forEach((t, i) => {
+      t.visible = moving && i > 0;
+      t.position.copy(pts[i]);
+    });
+    if (this.hitRing.visible) this.hitRing.scale.setScalar(1 + Math.sin(T * 9) * 0.04);
     // bats in hands
     for (const c of this.cast) if (c.bat && c.ch.mesh.visible) this.placeBat(c);
     if (this.phase === 'live' || this.phase === 'dead') for (const c of this.cast) if (c.swing >= 0) c.swing = Math.min(1, c.swing + dt * 4);
@@ -1818,13 +1917,19 @@ export class Cricket {
       <div class="ck-banner hidden"><div class="ck-title"></div><div class="ck-sub"></div></div>
       <div class="ck-flash hidden"></div>
       <div class="ck-say"></div>
-      <div class="ck-meter hidden"><div class="ck-zone"></div><div class="ck-needle"></div></div>
+      <div class="ck-meter hidden"><div class="ck-z"></div><div class="ck-red"></div><div class="ck-needle"></div><div class="ck-mlabel"></div></div>
       <div class="ck-help"></div>
       <div class="ck-quit"><kbd>X</kbd> leave the match</div>
       <div class="ck-modal hidden"><h2></h2><p></p><div class="ck-buttons"></div></div>`;
     document.body.appendChild(root);
+    if (!document.getElementById('cricket-style')) {
+      const css = document.createElement('style');
+      css.id = 'cricket-style';
+      css.textContent = CRICKET_CSS;
+      document.head.appendChild(css);
+    }
     const q = (s) => root.querySelector(s);
-    this.el = { root, bug: q('.ck-bug'), score: q('.ck-score'), chase: q('.ck-chase'), over: q('.ck-over'), who: q('.ck-who'), banner: q('.ck-banner'), title: q('.ck-title'), sub: q('.ck-sub'), flash: q('.ck-flash'), say: q('.ck-say'), meter: q('.ck-meter'), needle: q('.ck-needle'), help: q('.ck-help'), modal: q('.ck-modal') };
+    this.el = { root, bug: q('.ck-bug'), score: q('.ck-score'), chase: q('.ck-chase'), over: q('.ck-over'), who: q('.ck-who'), banner: q('.ck-banner'), title: q('.ck-title'), sub: q('.ck-sub'), flash: q('.ck-flash'), say: q('.ck-say'), meter: q('.ck-meter'), needle: q('.ck-needle'), zone: q('.ck-z'), red: q('.ck-red'), mlabel: q('.ck-mlabel'), help: q('.ck-help'), modal: q('.ck-modal') };
   }
   updateScore() {
     const inn = this.inn;
@@ -1847,9 +1952,15 @@ export class Cricket {
     clearTimeout(this.bannerT);
     this.bannerT = setTimeout(() => this.el.banner.classList.add('hidden'), dur * 1000);
   }
-  flash(text, dur) {
-    this.el.flash.textContent = text;
-    this.el.flash.classList.remove('hidden');
+  flash(text, dur, color = '') {
+    const f = this.el.flash;
+    f.textContent = text;
+    f.style.color = color;
+    f.classList.remove('hidden');
+    // restart the pop-in
+    f.classList.remove('pop');
+    void f.offsetWidth;
+    f.classList.add('pop');
     clearTimeout(this.flashT);
     this.flashT = setTimeout(() => this.el.flash.classList.add('hidden'), dur * 1000);
   }
@@ -1886,6 +1997,28 @@ export class Cricket {
     this.buttons = null;
   }
 }
+
+// The parts of the look that belong to the new controls (the rest is in style.css)
+const CRICKET_CSS = `
+#cricket .ck-meter { width: 380px; height: 20px; bottom: 140px; overflow: visible; border-radius: 10px; border: 2px solid rgba(255,255,255,0.75);
+  background: linear-gradient(90deg, rgba(255,255,255,0.06), rgba(255,255,255,0.16)), rgba(11,13,20,0.82); box-shadow: 0 6px 24px rgba(0,0,0,0.45); }
+#cricket .ck-meter .ck-z, #cricket .ck-meter .ck-red { position: absolute; top: 0; bottom: 0; }
+#cricket .ck-meter .ck-z { border-radius: 6px; background: linear-gradient(180deg, #8dffbf, #1fc46a); box-shadow: 0 0 12px rgba(93,255,158,0.55); }
+#cricket .ck-meter .ck-red { right: 0; border-radius: 0 8px 8px 0; background: linear-gradient(180deg, #ff8a8a, #c62828); opacity: 0.85; }
+#cricket .ck-meter .ck-needle { top: -5px; bottom: -5px; width: 5px; margin-left: -2.5px; border-radius: 3px; transition: background 0.1s; }
+#cricket .ck-meter.hot .ck-needle { background: #ffe14d; box-shadow: 0 0 14px #ffe14d, 0 0 4px #fff; }
+#cricket .ck-meter .ck-needle.done { opacity: 0.5; }
+#cricket .ck-meter .ck-mlabel { position: absolute; left: 0; right: 0; bottom: calc(100% + 6px); text-align: center; font: 15px 'Bebas Neue', sans-serif; letter-spacing: 3px; opacity: 0.85; text-shadow: 0 1px 4px #000; }
+#cricket .ck-help { border: 1px solid rgba(255,255,255,0.12); backdrop-filter: blur(6px); }
+#cricket .ck-help .ck-dim { opacity: 0.6; font-weight: 500; }
+#cricket .ck-help .ck-g { color: #5dff9e; }
+#cricket .ck-flash { font-size: 40px; }
+#cricket .ck-flash.pop { animation: ck-pop 0.35s cubic-bezier(.2,1.6,.4,1); }
+#cricket .ck-banner:not(.hidden) { animation: ck-rise 0.45s ease-out; }
+@keyframes ck-pop { from { transform: translateX(-50%) scale(0.5); opacity: 0; } to { transform: translateX(-50%) scale(1); opacity: 1; } }
+@keyframes ck-rise { from { transform: translateX(-50%) translateY(24px); opacity: 0; } to { transform: translateX(-50%) translateY(0); opacity: 1; } }
+@media (max-width: 560px) { #cricket .ck-meter { width: 82vw; } }
+`;
 
 function overs(balls) {
   return `${Math.floor(balls / 6)}.${balls % 6}`;
