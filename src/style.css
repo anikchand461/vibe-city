@@ -1965,6 +1965,139 @@ html, body {
   transform: scale(1.02);
 }
 
+/* Today's real headlines (from /api/news) */
+.news-live .news-section-tag {
+  background: #8a1f18;
+}
+
+.news-live-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: #ffd9d2;
+  vertical-align: 1px;
+  animation: news-live-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes news-live-pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.news-live a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.news-live a:hover {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.news-live-lead .news-lead-en-head {
+  font-size: 26px;
+  margin-bottom: 4px;
+}
+
+.news-live-meta,
+.news-live-src {
+  font-size: 11px;
+  font-style: italic;
+  letter-spacing: 0.3px;
+  color: #6b5d4c;
+}
+
+.news-live-list {
+  margin: 12px 0 0;
+  padding: 10px 0 0 22px;
+  border-top: 1px solid #181512;
+  columns: 2;
+  column-gap: 26px;
+  column-rule: 1px solid #c9bda5;
+}
+
+.news-live-list li {
+  break-inside: avoid;
+  margin-bottom: 9px;
+  font-size: 13.5px;
+  font-weight: bold;
+  line-height: 1.3;
+  color: #15110d;
+}
+
+.news-live-list li::marker {
+  color: #8a1f18;
+  font-weight: bold;
+}
+
+.news-live-list .news-live-src,
+.news-live-bn-list .news-live-src {
+  display: block;
+  margin-top: 2px;
+  font-weight: normal;
+}
+
+.news-live-note {
+  margin: 8px 0 0;
+  font-size: 10.5px;
+  font-style: italic;
+  text-align: center;
+  color: #6b5d4c;
+}
+
+.news-live-wait .news-live-note {
+  text-align: left;
+  font-size: 13px;
+}
+
+.news-box-live-bn {
+  border: 2px solid #8a1f18;
+}
+
+.news-box-live-bn .news-box-title {
+  color: #8a1f18;
+  border-bottom-color: #8a1f18;
+}
+
+.news-live-bn-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.news-live-bn-list li {
+  padding: 6px 0;
+  border-bottom: 1px dotted #b9ab90;
+  font-family: 'Kohinoor Bangla', 'Bangla MN', 'Noto Serif Bengali', serif;
+  font-size: 14px;
+  font-weight: bold;
+  line-height: 1.35;
+}
+
+.news-live-bn-list li:last-child {
+  border-bottom: 0;
+}
+
+.news-live-bn-list a {
+  color: #15110d;
+  text-decoration: none;
+}
+
+.news-live-bn-list a:hover {
+  color: #8a1f18;
+  text-decoration: underline;
+}
+
+@media (max-width: 860px) {
+  .news-live-list {
+    columns: 1;
+  }
+}
+
 @media (max-width: 860px) {
   .news-top-banner {
     grid-template-columns: 1fr;

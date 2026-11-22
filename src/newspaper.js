@@ -2,7 +2,22 @@
  * The Calcutta Chronicle (কলিকাতা ক্রনিকল)
  * Interactive vintage Kolkata broadsheet newspaper bought at A.H. Wheeler (Howrah Station).
  * Procedurally generates authentic news, sports, civic debates, weather, market rates, and satire.
+ * The front page also carries today's real Kolkata headlines from /api/news (Google News,
+ * headlines and links only); without them the paper is all our own correspondents.
  */
+
+const NEWS_URL = `${import.meta.env.BASE_URL}api/news`;
+const LIVE_TTL = 10 * 60 * 1000; // ask the city desk again after ten minutes
+
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const safeLink = (u) => (/^https?:\/\//.test(u) ? esc(u) : '#');
+function ago(t) {
+  if (!t) return '';
+  const m = Math.max(1, Math.round((Date.now() - t) / 60000));
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  return h < 24 ? `${h} hr${h > 1 ? 's' : ''} ago` : `${Math.round(h / 24)} d ago`;
+}
 
 const LEAD_STORIES = [
   {
@@ -161,6 +176,81 @@ export class Newspaper {
     this.seed = Math.floor(Math.random() * 1000);
     this.modalEl = null;
     this.contentEl = null;
+    this.live = null; // { updated, en: [...], bn: [...] } from /api/news
+    this.liveAt = 0;
+    this.liveState = 'idle'; // idle | loading | ok | failed
+  }
+
+  /** Today's real headlines; the paper redraws when they arrive. */
+  fetchLive() {
+    if (this.liveState === 'loading' || (this.live && Date.now() - this.liveAt < LIVE_TTL)) return;
+    this.liveState = 'loading';
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 9000);
+    fetch(NEWS_URL, { signal: ctl.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (!j || !(j.en?.length || j.bn?.length)) throw new Error('no news');
+        this.live = j;
+        this.liveAt = Date.now();
+        this.liveState = 'ok';
+      })
+      .catch(() => {
+        this.liveState = this.live ? 'ok' : 'failed';
+      })
+      .finally(() => {
+        clearTimeout(timer);
+        if (this.active) this.renderEdition();
+      });
+  }
+
+  /** The real-news column at the top of the front page. */
+  liveSection() {
+    const en = (this.live && this.live.en) || [];
+    if (!en.length) {
+      if (this.liveState !== 'loading') return '';
+      return `
+            <section class="news-live news-live-wait">
+              <div class="news-section-tag"><span class="news-live-dot"></span>LIVE FROM THE CITY · আজকের কলকাতা</div>
+              <p class="news-live-note">The wire from the city desk is coming in…</p>
+            </section>
+            <div class="news-ornate-divider">❖ &nbsp; ❖ &nbsp; ❖</div>`;
+    }
+    const [top, ...rest] = en;
+    const meta = (n) => `${esc(n.source || 'Wire')}${n.time ? ` · ${ago(n.time)}` : ''}`;
+    const at = new Date(this.live.updated || this.liveAt);
+    return `
+            <section class="news-live">
+              <div class="news-section-tag"><span class="news-live-dot"></span>LIVE FROM THE CITY · আজকের কলকাতা</div>
+              <a class="news-live-lead" href="${safeLink(top.link)}" target="_blank" rel="noopener noreferrer">
+                <h2 class="news-lead-en-head">${esc(top.title)}</h2>
+              </a>
+              <div class="news-live-meta">${meta(top)}</div>
+              <ol class="news-live-list">
+                ${rest
+                  .slice(0, 7)
+                  .map((n) => `<li><a href="${safeLink(n.link)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a><span class="news-live-src">${meta(n)}</span></li>`)
+                  .join('')}
+              </ol>
+              <p class="news-live-note">Today's headlines via Google News · click one to read the full story · wire received ${at.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</p>
+            </section>
+            <div class="news-ornate-divider">❖ &nbsp; ❖ &nbsp; ❖</div>`;
+  }
+
+  /** Bengali headlines for the sidebar. */
+  liveBengaliBox() {
+    const bn = (this.live && this.live.bn) || [];
+    if (!bn.length) return '';
+    return `
+            <div class="news-box news-box-live-bn">
+              <div class="news-box-title">আজকের শিরোনাম · TODAY IN BENGALI</div>
+              <ul class="news-live-bn-list">
+                ${bn
+                  .slice(0, 6)
+                  .map((n) => `<li><a href="${safeLink(n.link)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a><span class="news-live-src">${esc(n.source || '')}</span></li>`)
+                  .join('')}
+              </ul>
+            </div>`;
   }
 
   initUI() {
@@ -235,6 +325,7 @@ export class Newspaper {
     }
     this.editionCount++;
     this.seed = (this.seed + 271) % 10000;
+    this.fetchLive();
     this.renderEdition();
   }
 
@@ -330,6 +421,9 @@ export class Newspaper {
         <div class="news-body-grid">
           <!-- LEFT / MAIN COLUMN (Lead Story + Secondary Story) -->
           <div class="news-main-col">
+            <!-- TODAY'S REAL HEADLINES -->
+            ${this.liveSection()}
+
             <!-- LEAD STORY -->
             <section class="news-lead-story">
               <div class="news-section-tag">${data.lead.category}</div>
@@ -364,6 +458,8 @@ export class Newspaper {
 
           <!-- RIGHT / SIDEBAR COLUMN (Cartoon + Market Rates + Classifieds + Letters) -->
           <aside class="news-sidebar-col">
+            ${this.liveBengaliBox()}
+
             <!-- DADA'S CORNER POCKET CARTOON & DIALOGUE -->
             <div class="news-box news-box-cartoon">
               <div class="news-box-title">${data.cartoon.title}</div>
@@ -429,6 +525,7 @@ export class Newspaper {
     if (!this.modalEl) return;
 
     this.active = true;
+    this.fetchLive();
     this.renderEdition();
     this.modalEl.classList.remove('hidden');
 
