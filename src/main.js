@@ -205,6 +205,9 @@ const game = {
   get rides() {
     return rides;
   },
+  get input() {
+    return input;
+  },
   get metro() {
     return metro;
   },
@@ -961,7 +964,7 @@ window.addEventListener('beforeunload', (e) => {
 let wasLocked = false;
 document.addEventListener('pointerlockchange', () => {
   const locked = document.pointerLockElement === renderer.domElement;
-  if (!locked && wasLocked && state === 'play') setPaused(true);
+  if (!locked && wasLocked && state === 'play' && !(rides && rides.selection)) setPaused(true);
   wasLocked = locked;
 });
 /** Which way the player's vehicle is going: riding, the way it's travelling (the camera's); else its nose. */
@@ -1410,7 +1413,7 @@ function loop() {
   }
 
   if (state === 'title' && input.hit('Enter')) startGame();
-  if (!leaveOpen && (state === 'play' || state === 'pause') && input.hit('Escape')) {
+  if (!leaveOpen && !(rides && rides.selection) && (state === 'play' || state === 'pause') && input.hit('Escape')) {
     if (!input.locked || state === 'pause') setPaused(state === 'play');
   }
   if (!leaveOpen && state === 'play' && input.hit('KeyP')) {

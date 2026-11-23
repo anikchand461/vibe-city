@@ -6,6 +6,7 @@ import { inTiles } from './world.js';
 import { routePlan, nearestLink, planPath, busHeading } from './busroutes.js';
 import { railSeats } from './interiors.js';
 import { clamp, damp, dampAngle, etaText } from './utils.js';
+import { ROAD_FARES, roadFare, transitFare } from './fares.js';
 
 /*
  * Riding as a passenger instead of driving.
@@ -16,19 +17,8 @@ import { clamp, damp, dampAngle, etaText } from './utils.js';
  * the Metro or a ferry launch: pay the fare and ride; get off (F) at a stop.
  */
 
-/** Fares in rupees: flag-fall covers the first `incl` km, then per km. */
-const FARES = {
-  taxi: { base: 30, incl: 2, perKm: 15, speed: 14, label: 'taxi' },
-  auto: { base: 20, incl: 1.5, perKm: 10, speed: 11, label: 'auto' },
-  rickshaw: { base: 30, incl: 0.5, perKm: 25, speed: 2.6, label: 'rickshaw', max: 2500 },
-};
-const TICKETS = { bus: 10, tram: 7, train: 10, express: 120, metro: 20, launch: 6 };
 const HIRE = new Set(['taxi', 'auto', 'rickshaw']);
-export const fareFor = (type, metres) => {
-  const f = FARES[type];
-  const km = metres / 1000;
-  return Math.round(f.base + Math.max(0, km - f.incl) * f.perKm);
-};
+export const fareFor = roadFare;
 
 /** Where the passenger sits, in the vehicle's local frame [x, z, seatY]. */
 export function passengerSeat(v) {
@@ -48,6 +38,7 @@ export class Rides {
     this.ride = null;
     this.driver = null;
     this.tmp = {};
+    this.selection = null;
   }
 
   get active() {
@@ -61,13 +52,17 @@ export class Rides {
     if (player.underground) {
       const cs = this.nearConsist(p, 3.4);
       if (!cs) return null;
-      // the fare was paid at the gate on the way in
-      const paid = cs.kind === 'metro' && this.metroPass;
-      return { text: paid ? `Board ${cs.label}` : `Board ${cs.label} · ₹${TICKETS[cs.kind]}`, act: () => this.boardRail(cs) };
+      if (cs.kind === 'metro') {
+        const ticket = this.metroTicket;
+        if (ticket && ticket.line === cs.metroLine) return { text: `Board ${cs.label}`, act: () => this.boardRail(cs) };
+        if (ticket) return { text: `Ticket for ${ticket.line}`, act: () => {} };
+        return { text: `Choose a Metro destination`, act: () => this.selectMetro(cs) };
+      }
+      return { text: `Choose a destination · ${cs.label}`, act: () => this.selectRail(cs) };
     }
     // Rail: any car of a stopped train or tram
     const cs = this.nearConsist(p, 3.4);
-    if (cs) return { text: `Board ${cs.label} · ₹${TICKETS[cs.kind]}`, act: () => this.boardRail(cs) };
+    if (cs) return { text: `Choose a destination · ${cs.label}`, act: () => this.selectRail(cs) };
     // Road vehicles and launches
     let best = null;
     let bd = 3.2;
@@ -90,26 +85,23 @@ export class Rides {
     for (const c of g.traffic.cars) if (HIRE.has(c.type) || c.type === 'bus') consider(c, c.x, c.z, c.type, c.def);
     if (!best) return null;
     const { o, type } = best;
-    if (type === 'launch') return { text: `Board the ferry · ₹${TICKETS.launch}`, act: () => this.boardLaunch(o) };
+    if (type === 'launch') return { text: `Board the ferry · ₹${transitFare('launch', 0)}`, act: () => this.boardLaunch(o) };
     if (type === 'bus') {
       const route = o.busRoute;
       const via = route && routePlan(this.world.graph, route, o.busBack).via;
-      return { text: route ? `Board bus ${route.no} to ${busHeading(route, o.busBack)}${via ? ` via ${via}` : ''} · ₹${TICKETS.bus}` : `Board the bus · ₹${TICKETS.bus}`, act: () => this.hire(o, 'bus') };
+      return { text: route ? `Bus ${route.no} to ${busHeading(route, o.busBack)}${via ? ` via ${via}` : ''} · choose your stop` : 'Choose a bus stop', act: () => this.selectBus(o) };
     }
     const name = { taxi: 'taxi', auto: 'auto', rickshaw: 'rickshaw' }[type];
-    return { text: `Hire the ${name} · ₹${FARES[type].base}+`, act: () => this.hire(o, type) };
+    return { text: `Hire the ${name} · ₹${ROAD_FARES[type].base}+`, act: () => this.hire(o, type) };
   }
 
   /**
-   * Metro fare gates at the foot of the stairs. Going in, the player chooses: tap the card
-   * (the fare comes off now) and the flaps open, or don't ride and they stay shut.
-   * Coming out from the platform, they open by themselves.
+   * Choose and pay for a Metro destination before an entry gate opens.
    */
   gateOffer(player) {
     const g = this.game;
     if (!player.underground || !g.metro) {
-      // back up in the street: the card's tap has run out
-      this.metroPass = false;
+      this.metroTicket = null;
       this.declined = null;
       return null;
     }
@@ -119,30 +111,262 @@ export class Rides {
       return null;
     }
     const gate = near.g;
-    if (near.way === 'out' || this.metroPass) {
+    if (near.way === 'out' || this.metroTicket) {
       g.metro.openGate(gate, 1.5);
       return null;
     }
     if (this.declined === gate) return null;
-    const fare = TICKETS.metro;
     return {
-      text: `Ride the Metro · ₹${fare}`,
+      text: `Choose a Metro destination`,
       text2: "Don't ride",
-      ride: () => {
-        if (g.gameplay.money < fare) {
-          g.hud.notify('NOT ENOUGH MONEY', `The fare is ₹${fare} · the gate stays shut`, '#ff5f6d');
-          this.declined = gate;
-          return;
-        }
-        this.pay(fare, 'Metro fare · card tapped at the gate');
-        this.metroPass = true;
-        g.metro.openGate(gate, 2.5);
-      },
+      ride: () => this.selectMetroAtGate(gate),
       skip: () => {
         this.declined = gate;
         g.hud.notify('GATE STAYS SHUT', 'Head back up the stairs to the street', '#ffd36b');
       },
     };
+  }
+
+  openDestinationSelection(title, groups, onChoose, onCancel = () => {}) {
+    const choices = groups.flatMap((group) => group.choices.map((choice) => ({ ...choice, group: group.label, color: group.color })));
+    if (!choices.length) {
+      this.game.hud.notify('NO DESTINATIONS', 'There are no named stops ahead on this service', '#ff5f6d');
+      return;
+    }
+    this.selection = { kind: 'choices', title, allChoices: choices, page: 0, onChoose, onCancel };
+    this.pointerWasLocked = document.pointerLockElement !== null;
+    if (this.pointerWasLocked) document.exitPointerLock();
+    this.renderDestinationPage();
+  }
+
+  renderDestinationPage() {
+    const selection = this.selection;
+    const start = selection.page * 9;
+    selection.choices = selection.allChoices.slice(start, start + 9);
+    selection.choices.forEach((choice, i) => { choice.number = i + 1; });
+    const groups = [];
+    for (const choice of selection.choices) {
+      let group = groups.find((item) => item.label === choice.group);
+      if (!group) {
+        group = { label: choice.group, color: choice.color, choices: [] };
+        groups.push(group);
+      }
+      group.choices.push(choice);
+    }
+    this.game.hud.whereTo({
+      title: selection.title,
+      titleColor: groups.length && groups.every((group) => group.color === groups[0].color) ? groups[0].color : '',
+      subtitle: `Choose a stop · Esc to cancel${selection.allChoices.length > 9 ? ` · Page ${selection.page + 1}/${Math.ceil(selection.allChoices.length / 9)} · use arrows for more` : ''}`,
+      balance: this.game.gameplay.money,
+      groups,
+      onChoose: (number) => this.chooseDestination(number),
+      onCancel: () => this.cancelDestination(),
+      pageLabel: selection.allChoices.length > 9 ? `${selection.page + 1} / ${Math.ceil(selection.allChoices.length / 9)}` : '',
+      onPageChange: (delta) => this.changeDestinationPage(delta),
+    });
+  }
+
+  changeDestinationPage(delta) {
+    const selection = this.selection;
+    if (!selection || selection.kind !== 'choices') return;
+    const pages = Math.ceil(selection.allChoices.length / 9);
+    selection.page = (selection.page + delta + pages) % pages;
+    this.renderDestinationPage();
+  }
+
+  chooseDestination(number) {
+    const selection = this.selection;
+    if (!selection || selection.kind !== 'choices') return;
+    const choice = selection.choices.find((item) => item.number === number);
+    if (!choice || choice.fare > this.game.gameplay.money) return;
+    this.finishSelection();
+    selection.onChoose(choice);
+  }
+
+  finishSelection() {
+    this.selection = null;
+    this.game.hud.closeWhereTo();
+    if (this.pointerWasLocked && this.game.input) this.game.input.lock();
+    this.pointerWasLocked = false;
+  }
+
+  cancelDestination() {
+    const selection = this.selection;
+    if (!selection) return;
+    this.finishSelection();
+    selection.onCancel();
+  }
+
+  handleSelection(input) {
+    const selection = this.selection;
+    if (!selection) return false;
+    if (input.hit('Escape')) {
+      this.cancelDestination();
+      return true;
+    }
+    if (selection.kind === 'confirm' && input.hit('Enter')) {
+      this.finishSelection();
+      selection.onConfirm();
+      return true;
+    }
+    if (selection.kind === 'choices') {
+      if (input.hit('ArrowLeft') || input.hit('PageUp')) {
+        this.changeDestinationPage(-1);
+        return true;
+      }
+      if (input.hit('ArrowRight') || input.hit('PageDown')) {
+        this.changeDestinationPage(1);
+        return true;
+      }
+      for (let n = 1; n <= 9; n++) {
+        if (input.hit(`Digit${n}`) || input.hit(`Numpad${n}`)) {
+          this.chooseDestination(n);
+          return true;
+        }
+      }
+    }
+    return true;
+  }
+
+  metroGroups(lineName, stationName) {
+    const lines = this.game.metro.lines;
+    const stationKey = (name) => name.toLowerCase().replace(/[^a-z]/g, '');
+    const atInterchange = stationKey(stationName) === 'esplanade';
+    const groups = [];
+    for (const line of lines) {
+      if (lineName && line.name !== lineName && !atInterchange) continue;
+      const currentIndex = line.stations.findIndex((station) => stationKey(station.name) === stationKey(stationName));
+      if (currentIndex < 0) continue;
+      for (const step of [-1, 1]) {
+        const ahead = [];
+        for (let i = currentIndex + step; i >= 0 && i < line.stations.length; i += step) {
+          const origin = line.stations[currentIndex];
+          const destination = line.stations[i];
+          const metres = Math.abs(destination.s - origin.s);
+          ahead.push({
+            name: destination.name,
+            km: metres / 1000,
+            fare: transitFare('metro', metres, line.name),
+            destination: { type: 'metro', line: line.name, origin: origin.name, station: destination.name, originS: origin.s, destinationS: destination.s, distance: metres },
+          });
+        }
+        if (ahead.length) groups.push({ label: `${line.name} · towards ${ahead[ahead.length - 1].name}`, color: line.css, choices: ahead });
+      }
+    }
+    return groups;
+  }
+
+  selectMetroAtGate(gate) {
+    const groups = this.metroGroups(gate.line, gate.name);
+    this.openDestinationSelection(`${gate.line} · Where to?`, groups, (choice) => {
+      if (!this.pay(choice.fare, `Metro · ${choice.destination.origin} → ${choice.name} · ₹${choice.fare}`)) {
+        this.declined = gate;
+        return;
+      }
+      this.metroTicket = { ...choice.destination, fare: choice.fare };
+      this.game.metro.openGate(gate, 2.5);
+    }, () => { this.declined = gate; });
+  }
+
+  selectMetro(cs) {
+    const line = this.game.metro.lines.find((item) => item.trains.includes(cs));
+    if (!line) return;
+    const centreS = cs.s - cs.span / 2;
+    const current = line.stations.reduce((best, station) => !best || Math.abs(station.s - centreS) < Math.abs(best.s - centreS) ? station : best, null);
+    if (!current) return;
+    const groups = this.metroGroups(line.name, current.name);
+    this.openDestinationSelection('Metro · Where to?', groups, (choice) => {
+      if (!this.pay(choice.fare, `Metro · ${choice.destination.origin} → ${choice.name} · ₹${choice.fare}`)) return;
+      this.metroTicket = { ...choice.destination, fare: choice.fare };
+      if (choice.destination.line === line.name) this.boardRail(cs);
+    });
+  }
+
+  railDestinations(cs) {
+    const currentS = cs.s - cs.span / 2;
+    const isTram = cs.kind === 'tram';
+    const stops = [];
+    if (isTram) {
+      for (const stop of this.game.rail.tramStops) {
+        if (stop.track !== cs.track || Math.abs(stop.s - currentS) < 80) continue;
+        const ahead = cs.dir > 0 ? stop.s > currentS : stop.s < currentS;
+        if (ahead) stops.push({ name: stop.name, s: stop.s, x: stop.x, z: stop.z });
+      }
+    } else {
+      const trackStations = MAP.stations.filter((station) => station.k === 'rail');
+      for (const stop of cs.stops) {
+        const stationS = stop - cs.span / 2;
+        if (Math.abs(stationS - currentS) < 80) continue;
+        if (cs.dir > 0 ? stationS < currentS : stationS > currentS) continue;
+        const point = cs.track.at(stationS, {});
+        let nearest = null;
+        for (const station of trackStations) {
+          const d = Math.hypot(station.x - point.x, station.z - point.z);
+          if (d < 140 && (!nearest || d < nearest.d)) nearest = { d, station };
+        }
+        if (nearest) stops.push({ name: nearest.station.n.replace(/ junction| railway station| station/gi, '').trim(), s: stationS, x: nearest.station.x, z: nearest.station.z });
+      }
+    }
+    stops.sort((a, b) => cs.dir > 0 ? a.s - b.s : b.s - a.s);
+    const unique = stops.filter((stop, i) => i === 0 || stop.name !== stops[i - 1].name);
+    const towards = unique.length ? unique[unique.length - 1].name : 'next stop';
+    const type = isTram ? 'tram' : cs.kind === 'express' ? 'express' : 'train';
+    return [{
+      label: `Towards ${towards}`,
+      color: isTram ? '#3f86d8' : '#f4c51c',
+      choices: unique.map((stop) => {
+        const metres = Math.abs(stop.s - currentS);
+        const fare = transitFare(type, metres);
+        return { name: stop.name, km: metres / 1000, fare, destination: { type, name: stop.name, s: stop.s, distance: metres } };
+      }),
+    }];
+  }
+
+  selectRail(cs) {
+    const kind = cs.kind === 'tram' ? 'Tram' : cs.kind === 'express' ? 'Rajdhani' : 'Local train';
+    const groups = this.railDestinations(cs);
+    this.openDestinationSelection(`${kind} · Where to?`, groups, (choice) => {
+      if (!this.pay(choice.fare, `${kind} · ${this.stationName(cs) || 'Origin'} → ${choice.name} · ₹${choice.fare}`)) return;
+      this.boardRail(cs, { ...choice.destination, fare: choice.fare });
+    });
+  }
+
+  busDestinations(vehicle) {
+    if (!vehicle.busRoute) return [];
+    const pts = this.busPath(vehicle);
+    if (!pts || pts.length < 3) return [];
+    const path = new Poly(pts.flat());
+    const places = [...MAP.pois, ...MAP.stations].filter((place) => place.n && Number.isFinite(place.x) && Number.isFinite(place.z));
+    const found = [];
+    for (const place of places) {
+      const projected = path.project(place.x, place.z);
+      if (projected.d > 170 || projected.s < 100 || projected.s > path.len - 80) continue;
+      const name = place.n.replace(/\s*\(.*?\)/, '').replace(/ station$/i, '').trim();
+      if (!name || found.some((item) => item.name === name || Math.abs(item.s - projected.s) < 100)) continue;
+      const point = path.at(projected.s, {});
+      const routePoints = pts.filter((pt) => path.project(pt[0], pt[1]).s < projected.s);
+      routePoints.push([point.x, point.z]);
+      found.push({ name, s: projected.s, path: routePoints });
+    }
+    found.sort((a, b) => a.s - b.s);
+    return found.map((stop) => {
+      const fare = transitFare('bus', stop.s);
+      return { name: stop.name, km: stop.s / 1000, fare, destination: { name: stop.name, path: stop.path, distance: stop.s } };
+    });
+  }
+
+  selectBus(vehicle) {
+    const route = vehicle.busRoute;
+    const stops = this.busDestinations(vehicle);
+    const group = {
+      label: route ? `Bus ${route.no} · towards ${busHeading(route, vehicle.busBack)}` : 'Upcoming stops',
+      color: '#38f3ff',
+      choices: stops,
+    };
+    this.openDestinationSelection('Bus · Kothay jaben?', [group], (choice) => {
+      if (!this.pay(choice.fare, `Bus ${route.no} · ${choice.name} · ₹${choice.fare}`)) return;
+      this.hire(vehicle, 'bus', choice.destination);
+    });
   }
 
   nearConsist(p, r) {
@@ -170,7 +394,7 @@ export class Rides {
   }
 
   /* ---------- Road: taxi, auto, rickshaw, bus ---------- */
-  hire(target, type) {
+  hire(target, type, destination = null) {
     const g = this.game;
     const v = target.mesh ? g.adoptTrafficCar(target, new THREE.Vector2(0, 0), 0) : target;
     v.vel.set(0, 0);
@@ -184,20 +408,19 @@ export class Rides {
     if (type !== 'rickshaw') this.seatDriver(v);
     const who = this.driver || pl.ch;
     if (type === 'bus') {
-      this.pay(TICKETS.bus, 'Bus fare to the conductor');
       g.hud.say(who, pick(LINES.conductor), 2.2);
-      // a route bus runs the streets its route really takes, to the terminus on its board
-      const pts = v.busRoute ? this.busPath(v) : null;
+      const pts = destination ? destination.path : v.busRoute ? this.busPath(v) : null;
       if (pts && pts.length > 2) {
         const plan = routePlan(this.world.graph, v.busRoute, v.busBack);
         const end = pts[pts.length - 1];
         this.follow(pts);
         this.ride.final = true;
         this.ride.state = 'go';
-        this.ride.terminus = plan.terminus;
+        this.ride.terminus = destination ? true : plan.terminus;
+        this.ride.destination = destination && destination.name;
         g.setWaypointQuiet({ x: end[0], z: end[1] });
         const { left, eta } = this.remaining();
-        g.hud.notify(`BUS ${v.busRoute.no} TO ${busHeading(v.busRoute, v.busBack)}`, `${plan.via ? `Via ${plan.via} · ` : ''}Last stop ${(left / 1000).toFixed(1)} km · about ${etaText(eta)} · F to get off at the next stop`, '#38f3ff');
+        g.hud.notify(`BUS ${v.busRoute.no} · ${destination ? destination.name : busHeading(v.busRoute, v.busBack)}`, `${destination ? 'Your stop' : `${plan.via ? `Via ${plan.via} · ` : ''}Last stop`} · ${(left / 1000).toFixed(1)} km · about ${etaText(eta)} · F to get off`, '#38f3ff');
       } else {
         this.wander();
         g.hud.notify('ON THE BUS', 'F to get off at the next stop', '#38f3ff');
@@ -206,7 +429,7 @@ export class Rides {
     }
     g.hud.say(this.voiceOf(v), pick(LINES.whereTo), 2.4);
     // Pick the destination on the map
-    g.pickDestination(`Where to? Search a place or click the map · ${type === 'taxi' ? 'Taxi' : type === 'auto' ? 'Auto' : 'Rickshaw'}: ₹${FARES[type].base} + ₹${FARES[type].perKm}/km`, (dest) => {
+    g.pickDestination(`Where to? Search a place or click the map · ${type}: ₹${ROAD_FARES[type].base} + ₹${ROAD_FARES[type].perKm}/km`, (dest) => {
       if (!this.ride || this.ride.v !== v) return;
       if (!dest) {
         this.leave(false);
@@ -229,20 +452,44 @@ export class Rides {
     }
     const pts = this.world.graph.route(v.pos.x, v.pos.z, dest.x, dest.z);
     const len = routeLength(pts);
-    const F = FARES[r.kind];
+    const F = ROAD_FARES[r.kind];
     if (pts.length < 3 || (F.max && len > F.max)) {
       g.hud.say(speaker, pick(LINES.tooFar), 2.4);
       if (F.max) g.hud.notify('TOO FAR FOR A RICKSHAW', `Rickshaws go up to ${(F.max / 1000).toFixed(1)} km · take a taxi or an auto`, '#ffd36b');
       this.repick();
       return;
     }
-    this.follow(pts);
-    r.state = 'go';
-    r.quote = fareFor(r.kind, len);
-    r.dest = dest;
-    g.hud.say(speaker, pick(LINES.going), 2.2);
-    g.hud.notify(`${(len / 1000).toFixed(1)} KM · ABOUT ₹${r.quote}`, 'Sit back · F to get off early', '#38f3ff');
-    g.setWaypointQuiet(dest);
+    const quote = fareFor(r.kind, len);
+    this.selection = {
+      kind: 'confirm',
+      onConfirm: () => {
+        if (this.ride !== r) return;
+        this.follow(pts);
+        r.state = 'go';
+        r.quote = quote;
+        r.dest = dest;
+        g.hud.say(speaker, pick(LINES.going), 2.2);
+        g.hud.notify(`${(len / 1000).toFixed(1)} KM · ABOUT ₹${quote}`, 'Sit back · F to get off early', '#38f3ff');
+        g.setWaypointQuiet(dest);
+      },
+      onCancel: () => {
+        if (this.ride === r) this.leave(false);
+      },
+    };
+    this.pointerWasLocked = document.pointerLockElement !== null;
+    if (this.pointerWasLocked) document.exitPointerLock();
+    const current = this.selection;
+    g.hud.whereTo({
+      title: `${r.kind} · Confirm ride`,
+      subtitle: 'Nothing is charged until you arrive',
+      balance: g.gameplay.money,
+      confirmation: `${(len / 1000).toFixed(1)} km · about ₹${quote}`,
+      onConfirm: () => {
+        this.finishSelection();
+        current.onConfirm();
+      },
+      onCancel: () => this.cancelDestination(),
+    });
   }
   repick() {
     const r = this.ride;
@@ -305,7 +552,7 @@ export class Rides {
       // a city bus averages ~8 m/s between stops, and waits at each one on the way
       const stops = r.nextStop < P.len ? 1 + Math.floor((P.len - r.nextStop) / 420) : 0;
       eta = left / 8 + stops * 9 + (r.state === 'stopped' ? Math.max(0, r.stopT) : 0);
-    } else eta = left / (FARES[r.kind].speed * 0.7);
+    } else eta = left / (ROAD_FARES[r.kind].speed * 0.7);
     return { pts, left, eta };
   }
 
@@ -356,7 +603,7 @@ export class Rides {
   }
 
   /* ---------- Rail and ferry ---------- */
-  boardRail(cs) {
+  boardRail(cs, ticket = null) {
     const g = this.game;
     const pl = g.player;
     // the car the player is standing by
@@ -375,19 +622,22 @@ export class Rides {
     let seat = null;
     for (const s of railSeats(cs, ci)) if (!seat || Math.abs(s.z - along) < Math.abs(seat.z - along)) seat = s;
     if (seat) along = seat.z;
-    // the Metro is paid for at the gate: the card's tap covers one trip
-    if (cs.kind === 'metro' && this.metroPass) this.metroPass = false;
-    else this.pay(TICKETS[cs.kind], `${cs.label} ticket`);
+    if (cs.kind === 'metro') {
+      ticket = this.metroTicket;
+      if (!ticket || ticket.line !== cs.metroLine) return;
+      this.metroTicket = null;
+    }
     if (g.progress) g.progress.event(cs.kind);
     if (cs.kind === 'train' || cs.kind === 'express') g.station.ticketT = Math.max(g.station.ticketT, 600);
-    this.ride = { kind: 'rail', cs, ci, along, seat, wasState: cs.state, lastStop: null };
+    const originS = cs.kind === 'metro' ? ticket.originS : cs.s - cs.span / 2;
+    this.ride = { kind: 'rail', cs, ci, along, seat, wasState: cs.state, lastStop: null, ticket: ticket ? { ...ticket, originS } : null };
     pl.board(cs, null);
-    g.hud.notify(`ON THE ${cs.label.toUpperCase()}`, 'F to get off when it stops', '#38f3ff');
+    g.hud.notify(`ON THE ${cs.label.toUpperCase()}`, ticket ? `Your stop: ${ticket.station || ticket.name} · F to get off` : 'F to get off when it stops', '#38f3ff');
   }
 
   boardLaunch(b) {
     const g = this.game;
-    this.pay(TICKETS.launch, 'Ferry ticket');
+    this.pay(transitFare('launch', 0), 'Ferry ticket');
     if (g.progress) g.progress.event('ferry');
     this.ride = { kind: 'launch', v: b };
     g.player.board(b, passengerSeat(b));
@@ -436,7 +686,7 @@ export class Rides {
     if (payNow && r.kind !== 'bus') {
       // the quoted fare for the whole trip; the meter for an early stop
       const fare = r.quote && !r.early ? Math.max(r.quote, fareFor(r.kind, r.dist)) : fareFor(r.kind, r.dist);
-      const full = this.pay(fare, `To the ${FARES[r.kind].label} driver`);
+      const full = this.pay(fare, `To the ${ROAD_FARES[r.kind].label} driver`);
       const who = this.voiceOf(v);
       setTimeout(() => g.hud.say(who, pick(full ? LINES.thanks : LINES.shortChange), 2.2), 900);
     }
@@ -457,6 +707,11 @@ export class Rides {
     const r = this.ride;
     const cs = r.cs;
     const g = this.game;
+    if (r.ticket && r.ticket.type !== 'express') {
+      const distance = Math.abs((cs.s - cs.span / 2) - r.ticket.originS);
+      const due = transitFare(r.ticket.type, distance, r.ticket.line);
+      if (due > r.ticket.fare) this.pay(due - r.ticket.fare, `${r.ticket.type === 'metro' ? 'Metro' : 'Train'} excess fare · ₹${due}`);
+    }
     const c = cs.cars[r.ci];
     const fx = Math.sin(c.yaw);
     const fz = Math.cos(c.yaw);
@@ -481,6 +736,10 @@ export class Rides {
     const r = this.ride;
     const g = this.game;
     if (!r) return;
+    if (this.selection) {
+      this.handleSelection(input);
+      return;
+    }
     const pl = g.player;
     if (input.hit('KeyF')) this.requestStop();
     if (!this.ride) return;
@@ -496,7 +755,11 @@ export class Rides {
       // (a Metro reversing in its siding beyond the last station isn't a stop)
       if (cs.state === 'dwell' && r.wasState !== 'dwell' && (!cs.sideAt || cs.sideAt(cs.s) !== null)) {
         const name = this.stationName(cs);
-        if (name) g.hud.notify(name.toUpperCase(), 'F to get off here', cs.kind === 'metro' ? '#2f6fe0' : '#f4c51c');
+        if (name) {
+          const target = r.ticket && (r.ticket.station || r.ticket.name);
+          const isTarget = target && target.toLowerCase() === name.toLowerCase();
+          g.hud.notify(name.toUpperCase(), isTarget ? `Your stop · F to get off` : 'F to get off here', cs.kind === 'metro' ? '#2f6fe0' : '#f4c51c');
+        }
       }
       r.wasState = cs.state;
       return;
@@ -533,7 +796,7 @@ export class Rides {
     const p = cs.pos;
     if (cs.kind === 'metro') {
       let best = null;
-      for (const s of this.game.metro.stations) {
+      for (const s of this.game.metro.stations.filter((station) => station.line === cs.metroLine)) {
         const d = Math.hypot(s.frame.cx - p.x, s.frame.cz - p.z);
         if (d < 160 && (!best || d < best.d)) best = { d, n: s.name };
       }
@@ -543,7 +806,7 @@ export class Rides {
     for (const s of MAP.stations) {
       if (s.k !== 'rail') continue;
       const d = Math.hypot(s.x - p.x, s.z - p.z);
-      if (d < 400 && (!best || d < best.d)) best = { d, n: s.n.replace(/ junction/i, '') };
+      if (d < 400 && (!best || d < best.d)) best = { d, n: s.n.replace(/ junction| railway station| station/gi, '').trim() };
     }
     if (best) return best.n;
     if (cs.kind === 'tram') {
@@ -552,7 +815,7 @@ export class Rides {
         const d = Math.hypot(s.x - p.x, s.z - p.z);
         if (d < 120 && (!t || d < t.d)) t = { d, n: s.name };
       }
-      return t && `${t.n} tram stop`;
+      return t && t.n;
     }
     return null;
   }
@@ -576,7 +839,7 @@ export class Rides {
       return;
     }
     const P = r.path;
-    const F = FARES[r.kind];
+    const F = ROAD_FARES[r.kind];
     let vmax = F ? F.speed : 10;
     // slow for corners: how much the path turns over the next stretch
     P.at(r.s, q);
@@ -666,7 +929,8 @@ export class Rides {
         if (r.final) {
           // the last stop: everybody off
           r.state = 'arrived';
-          if (r.terminus || !v.busRoute) g.hud.notify('LAST STOP', v.busRoute ? busHeading(v.busRoute, v.busBack) : '', '#ffd36b');
+          if (r.destination) g.hud.notify('YOUR STOP', `${r.destination} · F to get off`, '#ffd36b');
+          else if (r.terminus || !v.busRoute) g.hud.notify('LAST STOP', v.busRoute ? busHeading(v.busRoute, v.busBack) : '', '#ffd36b');
           else g.hud.notify('EDGE OF THE MAPPED CITY', `Bus ${v.busRoute.no} runs on to ${busHeading(v.busRoute, v.busBack)} · everybody off`, '#ffd36b');
           g.hud.say(this.driver || g.player.ch, pick(LINES.busStop), 2);
           setTimeout(() => {

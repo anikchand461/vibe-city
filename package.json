@@ -4,6 +4,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "test": "node --test",
     "preview": "vite preview",
     "build:map": "node tools/build-map.mjs",
     "build:voices": "node tools/gen-voices.mjs"

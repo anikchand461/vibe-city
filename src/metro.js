@@ -726,6 +726,7 @@ export class Metro {
       };
       for (let k = 0; k < L.trains; k++) {
         const cs = new Consist(scene, track, 'metro', [], fx, color);
+        cs.metroLine = L.name;
         cs.K = { ...KINDS.metro, y: D0 + 0.12 };
         cs.laneAt = laneAt;
         cs.xover = { Y0, Y1, X0, X1 };

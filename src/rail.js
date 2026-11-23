@@ -1591,7 +1591,7 @@ export class Rail {
         track.at(s, q0);
         const name = stopName(q0.x, q0.z);
         if (this.tramStops.some((t) => t.name === name && Math.hypot(t.x - q0.x, t.z - q0.z) < 500)) continue;
-        this.tramStops.push({ name, x: q0.x, z: q0.z });
+        this.tramStops.push({ name, x: q0.x, z: q0.z, track, s });
         const l = Math.hypot(q0.tx, q0.tz) || 1;
         const px = q0.x + (q0.tz / l) * 3.6;
         const pz = q0.z - (q0.tx / l) * 3.6;
