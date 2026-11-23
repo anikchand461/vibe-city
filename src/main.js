@@ -450,7 +450,7 @@ function updateCamera(dt) {
       cz += push.pz;
     }
     let cy = Math.max(ty + Math.sin(cam.pitch) * dist, world.groundAt(cx, cz, py) + 0.3);
-    if (p.underground) cy = Math.min(cy, metro.ceilingAt(cx, cz) - 0.35);
+    if (p.underground) cy = Math.min(cy, metro.ceilingAt(cx, cz, py) - 0.35);
     if (!cam.init) cam.pos.set(cx, cy, cz);
     const ck = p.aiming ? 30 : 20;
     cam.pos.set(damp(cam.pos.x, cx, ck, dt), damp(cam.pos.y, cy, ck, dt), damp(cam.pos.z, cz, ck, dt));
@@ -511,7 +511,7 @@ function updateCamera(dt) {
         tz = v.pos.z + (tz - v.pos.z) * f;
       }
       let ty = Math.max(v.pos.y + height, world.groundAt(tx, tz, v.pos.y) + 0.8);
-      if (v.pos.y < -2.5) ty = Math.min(ty, metro.ceilingAt(tx, tz) - 0.4);
+      if (v.pos.y < -2.5) ty = Math.min(ty, metro.ceilingAt(tx, tz, v.pos.y) - 0.4);
       cam.pos.set(damp(cam.pos.x, tx, 14, dt), damp(cam.pos.y, ty, 8, dt), damp(cam.pos.z, tz, 14, dt));
       camera.position.copy(cam.pos);
       const ahead = p.passenger ? cam.yaw : v.yaw;
@@ -784,6 +784,8 @@ async function boot() {
     const pts = (t) => t.x.filter((_, i) => i % 10 === 0).map((x, i) => [x, t.z[i * 10]]);
     for (const l of metro.lines) r.lines.push({ pts: pts(l.track), color: l.color, width: 4, dash: [7, 5] });
     for (const st of metro.stations) r.stations.push({ x: st.x, z: st.z, color: st.color, label: 'M' });
+    // every gate down from the street, numbered
+    for (const e of metro.entrances) if (e.x !== metro.stations.find((st) => st.name === e.name && st.line === e.line)?.x) r.stations.push({ x: e.x, z: e.z, color: e.color, label: 'M', name: e.gate ? `Gate ${e.gate}` : e.name, small: true });
     for (const t of rail.tramStops) r.stations.push({ x: t.x, z: t.z, color: '#3f86d8', label: 'T', name: t.name, small: true });
     hud.drawTransit(r.lines, r.stations);
   }
@@ -831,6 +833,7 @@ async function boot() {
   };
   mapView.addPlaces([
     ...metro.stations.map((st) => ({ n: `${st.name} Metro (${st.line})`, x: st.x, z: st.z, k: 'metro', tier: 1 })),
+    ...metro.entrances.filter((e) => e.gate).map((e) => ({ n: `${e.name} Metro Gate ${e.gate}`, x: e.x, z: e.z, k: 'metro', tier: 3 })),
     ...rail.tramStops.map((t) => ({ n: `${t.name} Tram Stop`, x: t.x, z: t.z, k: 'tram', tier: 3 })),
     { n: 'New Market Heritage Clothiers (Wardrobe)', x: -582, z: 672, k: 'shop', tier: 2 },
     { n: 'College Street Khadi & Sports Tailors (Wardrobe)', x: 528, z: -1078, k: 'shop', tier: 2 },

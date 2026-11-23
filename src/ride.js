@@ -54,7 +54,16 @@ export class Rides {
       if (!cs) return null;
       if (cs.kind === 'metro') {
         const ticket = this.metroTicket;
-        if (ticket && ticket.line === cs.metroLine) return { text: `Board ${cs.label}`, act: () => this.boardRail(cs) };
+        if (ticket && ticket.line === cs.metroLine) {
+          // the island has a train either side: is this one going your way?
+          const way = ticket.destinationS > ticket.originS ? 'up' : 'down';
+          if (way !== cs.bound) {
+            const pf = g.metro.platforms.find((p) => p.line === cs.metroLine && p.bound === way);
+            const other = pf ? `Platform ${pf.no}` : 'the other side';
+            return { text: `Your train is on the other side · ${other}`, act: () => g.hud.notify('OTHER SIDE OF THE ISLAND', `Trains to ${ticket.station} leave from ${other}`, '#ffd36b') };
+          }
+          return { text: `Board ${cs.label}`, act: () => this.boardRail(cs) };
+        }
         if (ticket) return { text: `Ticket for ${ticket.line}`, act: () => {} };
         return { text: `Choose a Metro destination`, act: () => this.selectMetro(cs) };
       }
@@ -105,7 +114,7 @@ export class Rides {
       this.declined = null;
       return null;
     }
-    const near = g.metro.gateNear(player.pos.x, player.pos.z);
+    const near = g.metro.gateNear(player.pos.x, player.pos.z, player.pos.y);
     if (!near) {
       this.declined = null;
       return null;
@@ -228,16 +237,17 @@ export class Rides {
     return true;
   }
 
-  metroGroups(lineName, stationName) {
+  /** Stations ahead either way from this one (or only the way `bound` runs: 'up' is along the line). */
+  metroGroups(lineName, stationName, bound) {
     const lines = this.game.metro.lines;
     const stationKey = (name) => name.toLowerCase().replace(/[^a-z]/g, '');
     const atInterchange = stationKey(stationName) === 'esplanade';
     const groups = [];
     for (const line of lines) {
-      if (lineName && line.name !== lineName && !atInterchange) continue;
+      if (lineName && line.name !== lineName && (!atInterchange || bound)) continue;
       const currentIndex = line.stations.findIndex((station) => stationKey(station.name) === stationKey(stationName));
       if (currentIndex < 0) continue;
-      for (const step of [-1, 1]) {
+      for (const step of bound ? [bound === 'up' ? 1 : -1] : [-1, 1]) {
         const ahead = [];
         for (let i = currentIndex + step; i >= 0 && i < line.stations.length; i += step) {
           const origin = line.stations[currentIndex];
@@ -274,7 +284,8 @@ export class Rides {
     const centreS = cs.s - cs.span / 2;
     const current = line.stations.reduce((best, station) => !best || Math.abs(station.s - centreS) < Math.abs(best.s - centreS) ? station : best, null);
     if (!current) return;
-    const groups = this.metroGroups(line.name, current.name);
+    // at the train itself: only where this train is going
+    const groups = this.metroGroups(line.name, current.name, cs.bound);
     this.openDestinationSelection('Metro · Where to?', groups, (choice) => {
       if (!this.pay(choice.fare, `Metro · ${choice.destination.origin} → ${choice.name} · ₹${choice.fare}`)) return;
       this.metroTicket = { ...choice.destination, fare: choice.fare };

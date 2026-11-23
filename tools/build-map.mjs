@@ -582,6 +582,16 @@ if (fs.existsSync(rpFile)) {
 }
 
 /* ---------- Trim the node table to what roads and rail use ---------- */
+/* ---------- Metro entrances: the numbered gates down from the street ---------- */
+const metroGates = [];
+for (const n of nodes.values()) {
+  if (!n.tags || n.tags.railway !== 'subway_entrance') continue;
+  const [x, z] = proj(n.lat, n.lon);
+  if (!inPlay(x, z)) continue;
+  metroGates.push({ n: n.tags.name || '', ref: n.tags.ref || '', x, z });
+}
+metroGates.sort((a, b) => a.x - b.x || a.z - b.z);
+
 const out = {
   attribution: 'Map data © OpenStreetMap contributors, ODbL',
   origin: [lat0, lon0],
@@ -601,6 +611,7 @@ const out = {
   routes,
   busRoutes,
   pois,
+  metroGates,
   region,
 };
 fs.mkdirSync(path.dirname(OUT), { recursive: true });

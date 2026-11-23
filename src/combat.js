@@ -208,7 +208,7 @@ export class Combat {
     // Underground: tunnel walls, floor and ceiling bound the shot
     const metro = o.y < -2.5 ? this.world.under : null;
     if (metro) {
-      const c = metro.ceilingAt(o.x, o.z);
+      const c = metro.ceilingAt(o.x, o.z, o.y);
       if (d.y > 1e-4) maxT = Math.min(maxT, (c - o.y) / d.y);
     }
     let best = { t: maxT, type: null };

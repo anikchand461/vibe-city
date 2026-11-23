@@ -18,7 +18,7 @@ export const METRO_DEPTH = -12;
 export const PLATFORM_H = 1.05;
 const BANK_DEPTH = WATER_Y - 2.5;
 const CHUNK = 700;
-const MAX_HOLES = 24;
+const MAX_HOLES = 48; // a stairwell for each Metro gate
 
 /** Bounds of all downloaded tiles. */
 export const TILES = MAP.tiles;
@@ -421,10 +421,11 @@ export class World {
 
   /** Ground under a point for something at height y: decks, stairs, and underground floors below street level. */
   groundAt(x, z, y) {
+    // a street stairway, unless you're well below it (on the platform under a station's stairs)
     const r = this.rampAt(x, z);
-    if (r !== null) return r;
+    if (r !== null && !(y < r - 2.5)) return r;
     if (y < -2.5 && this.under) {
-      const h = this.under.floorAt(x, z);
+      const h = this.under.floorAt(x, z, y);
       if (h !== null) return h;
     }
     const d = this.deckAt(x, z);
@@ -433,13 +434,13 @@ export class World {
   }
   /** Collisions for something at height y (street colliders above ground, metro walls below). */
   collideAt(x, z, r, y) {
-    if (y < -2.5 && this.under) return this.under.collideCircle(x, z, r);
+    if (y < -2.5 && this.under) return this.under.collideCircle(x, z, r, y);
     // On a bridge deck over the river or a canal/pond, the deck's own railings keep you on
     if (this.deckAt(x, z) !== null && (y > 2.5 || this.overWater(x, z))) return this.collideDeck(x, z, r);
     return this.collideCircle(x, z, r);
   }
   raycastAt(ax, az, bx, bz, y) {
-    if (y < -2.5 && this.under) return this.under.raycast(ax, az, bx, bz);
+    if (y < -2.5 && this.under) return this.under.raycast(ax, az, bx, bz, y);
     if (y > 2.5 && this.deckAt(ax, az) !== null) return 1;
     return this.raycast(ax, az, bx, bz);
   }
