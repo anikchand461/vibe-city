@@ -640,6 +640,10 @@ export class HUD {
       last.style.animation = 'none';
       void last.offsetWidth;
       last.style.animation = '';
+      clearTimeout(last._removeTimer);
+      last._removeTimer = setTimeout(() => {
+        if (last.parentNode) last.remove();
+      }, 3200);
       return;
     }
 
@@ -661,7 +665,7 @@ export class HUD {
       if (el.parentNode) el.remove();
     };
     el.addEventListener('animationend', remove, { once: true });
-    setTimeout(remove, 1700);
+    el._removeTimer = setTimeout(remove, 3200);
 
     this.el.moneyPopups.appendChild(el);
   }
