@@ -17,11 +17,12 @@ export class Input {
     addEventListener('keydown', (e) => {
       // typing in a text box (the map search) isn't game input
       if (e.target && e.target.tagName === 'INPUT') return;
+      if (e.code === 'Enter' && !document.getElementById('where-to')?.classList.contains('hidden')) e.preventDefault();
       if (e.code === 'Tab') e.preventDefault();
       if (e.code === 'KeyG' && this.wheelOpen) e.preventDefault();
       if (!this.keys.has(e.code)) this.pressed.add(e.code);
       this.keys.add(e.code);
-      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Backspace'].includes(e.code)) e.preventDefault();
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Backspace'].includes(e.code)) e.preventDefault();
     });
     addEventListener('keyup', (e) => this.keys.delete(e.code));
     addEventListener('blur', () => this.keys.clear());

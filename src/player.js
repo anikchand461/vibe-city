@@ -285,6 +285,10 @@ export class Player {
       if (this.deadT <= 0) g.respawnPlayer();
       return;
     }
+    if (g.rides && g.rides.selection) {
+      g.rides.handleSelection(input);
+      return;
+    }
     if (this.mode === 'riding') {
       g.rides.update(dt, T, input);
       return;

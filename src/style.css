@@ -511,6 +511,54 @@ html, body {
 #prompt .k2 { margin-left: 22px; background: var(--cyan); }
 #prompt .k3 { margin-left: 22px; background: var(--pink); }
 #prompt .kb { background: var(--green) !important; color: #0b140b !important; font-weight: 700; box-shadow: 0 0 8px rgba(93, 255, 158, 0.4); }
+#where-to {
+  position: absolute;
+  z-index: 20;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(760px, 92vw);
+  max-height: min(78vh, 760px);
+  overflow: auto;
+  padding: 22px;
+  color: #fff;
+  background: rgba(10, 9, 20, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 14px;
+  box-shadow: 0 16px 70px rgba(0, 0, 0, 0.7);
+  pointer-events: auto;
+  backdrop-filter: blur(12px);
+}
+#where-to .wt-head { display: flex; justify-content: space-between; gap: 16px; align-items: baseline; }
+#where-to h2 { margin: 0; font: 36px 'Bebas Neue', sans-serif; letter-spacing: 2px; }
+#where-to .wt-balance { color: var(--gold); font-weight: 700; white-space: nowrap; }
+#where-to .wt-subtitle { margin: 4px 0 16px; color: rgba(255,255,255,.68); }
+#where-to .wt-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 16px; }
+#where-to .wt-group h3 { margin: 8px 0; font-size: 15px; color: var(--cyan); }
+#where-to .wt-row {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) 70px 58px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 4px 0;
+  padding: 9px 10px;
+  color: #fff;
+  text-align: left;
+  background: rgba(255,255,255,.07);
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 7px;
+  cursor: pointer;
+}
+#where-to .wt-row:hover:not(:disabled), #where-to .wt-row:focus-visible { background: rgba(255,255,255,.15); outline: 1px solid var(--cyan); }
+#where-to .wt-row:disabled { opacity: .35; cursor: not-allowed; }
+#where-to .wt-number { color: var(--gold); font-weight: 800; }
+#where-to .wt-distance, #where-to .wt-fare { color: rgba(255,255,255,.78); text-align: right; white-space: nowrap; }
+#where-to .wt-fare { color: var(--gold); font-weight: 700; }
+#where-to .wt-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+#where-to .wt-actions button { padding: 10px 18px; color: #111; background: var(--gold); border: 0; border-radius: 6px; font-weight: 800; cursor: pointer; }
+#where-to .wt-actions .wt-cancel { color: #fff; background: rgba(255,255,255,.13); }
+#where-to .wt-confirm { margin: 22px 0; font-size: 20px; line-height: 1.5; text-align: center; }
 #wheel {
   position: absolute;
   left: 50%;

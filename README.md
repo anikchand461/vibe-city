@@ -183,7 +183,7 @@ Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributor
 | **Shift** | Sprint | Nitro boost |
 | **X** | Toggle walk / jog | — |
 | **Space** | Jump | Handbrake (drift) |
-| **V** | Ride as a passenger: hire a taxi, auto or rickshaw (pick a destination on the map, pay on arrival), or board a bus, tram, train, Metro or ferry (pay the fare) | Hold **T** to hurry a hired ride along |
+| **V** | Ride as a passenger: confirm a taxi/auto/rickshaw destination on the map, or choose a stop and fare for a bus, tram, train or Metro; ferries stay flat-fare | Hold **T** to hurry a hired ride along |
 | **F** | Enter the nearest vehicle (you'll pull out a traffic car's driver; trams and trains must be stopped) | Exit (bail out and roll if you're going fast) |
 | **E** | Buy at a station stall or ticket window; talk to a nearby person (with fists or bat in hand) | — |
 | **1–7** / **mouse wheel** | Fists, Baseball Bat, Pistol, SMG, Shotgun, Assault Rifle, Sniper Rifle | — |
@@ -311,9 +311,9 @@ Modelled in code and placed on their real footprints:
 <summary><b>Ride or drive</b></summary>
 
 Every vehicle offers two choices: **F** to drive it yourself, **V** to ride as a passenger.
-- **Taxi, auto-rickshaw, hand-pulled rickshaw:** the driver asks "Kothay jaben, dada?" and the map opens; search or click a destination. He quotes a fare, drives you there along the streets (keeping left, waiting in traffic, honking), and you pay on arrival: taxi ₹30 for the first 2 km then ₹15/km, auto ₹20 then ₹10/km, rickshaw ₹30 then ₹25/km (up to 2.5 km). Press F to get off early and pay the meter.
-- **Bus:** ₹10 to the conductor; it runs a route along the main roads and stops every few hundred metres. F gets you off at the next stop.
-- **Trains, trams, Metro:** board any car of a stopped train (₹10 local, ₹7 tram, ₹120 Rajdhani). For the Metro, pay ₹20 at the fare gate at the foot of the stairs; once you've tapped in, boarding is free. The next station is announced at each stop; F gets you off there. A train ticket also satisfies the TTE.
+- **Taxi, auto-rickshaw, hand-pulled rickshaw:** the driver asks "Kothay jaben, dada?" and the map opens; search or click a destination, then confirm the distance quote. The driver takes you along the streets (keeping left, waiting in traffic, honking); you pay on arrival, or the meter if you get off early. Fare rates are centralized in `src/fares.js`.
+- **Bus:** choose an upcoming named stop and its distance fare before boarding; the bus runs its route along the main roads. F gets you off at your stop.
+- **Trains, trams, Metro:** choose a named stop and fare before boarding. At a Metro gate, choosing the destination pays the fare and opens the gate; cancel without paying and the gate stays shut. Your stop is announced on arrival; press F to get off. Metro, local, bus and tram fare tables are centralized in `src/fares.js`. A train ticket also satisfies the TTE.
 - **Ferry launch:** ₹6, get off when it docks at a ghat.
 
 </details>
@@ -341,7 +341,7 @@ Every vehicle offers two choices: **F** to drive it yourself, **V** to ride as a
 <details>
 <summary><b>Dharmatala bus stand</b></summary>
 
-- The Esplanade bus terminus beside Shaheed Minar: shelters, a ticket booth, and buses in their bays with route boards (12C/1 Howrah Stn, S-163 Shobhabazar, 24B Sealdah, S-101 B.B.D. Bag, RT-27 Park Circus, 213 Babughat). Board one with V (₹10) and it takes you there, stopping on the way.
+- The Esplanade bus terminus beside Shaheed Minar: shelters, a ticket booth, and buses in their bays with route boards (12C/1 Howrah Stn, S-163 Shobhabazar, 24B Sealdah, S-101 B.B.D. Bag, RT-27 Park Circus, 213 Babughat). Press V, choose an upcoming named stop and pay its distance fare; the bus stops there.
 
 </details>
 

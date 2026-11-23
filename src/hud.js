@@ -34,6 +34,7 @@ export class HUD {
       fade: $('screen-fade'),
       moneyPopups: $('money-popups'),
     };
+    this.whereEl = $('where-to');
     this.mm = $('minimap').getContext('2d');
     this.sp = $('speedo').getContext('2d');
     this.shownMoney = 0;
@@ -300,6 +301,112 @@ export class HUD {
       this.promptEl.classList.toggle('hidden', !p);
       this._prompt = html;
     }
+  }
+
+  whereTo({ title, titleColor = '', subtitle = '', balance, groups = [], confirmation = '', pageLabel = '', onPageChange, onChoose, onConfirm, onCancel }) {
+    const root = this.whereEl;
+    root.replaceChildren();
+    const head = document.createElement('div');
+    head.className = 'wt-head';
+    const h = document.createElement('h2');
+    h.id = 'where-title';
+    h.textContent = title;
+    h.style.color = titleColor;
+    head.append(h);
+    if (Number.isFinite(balance)) {
+      const amount = document.createElement('span');
+      amount.className = 'wt-balance';
+      amount.textContent = `Balance · ₹${Math.floor(balance)}`;
+      head.append(amount);
+    }
+    root.append(head);
+    if (subtitle) {
+      const sub = document.createElement('p');
+      sub.className = 'wt-subtitle';
+      sub.textContent = subtitle;
+      root.append(sub);
+    }
+    if (confirmation) {
+      const summary = document.createElement('div');
+      summary.className = 'wt-confirm';
+      summary.textContent = confirmation;
+      root.append(summary);
+    }
+    if (groups.length) {
+      const groupRoot = document.createElement('div');
+      groupRoot.className = 'wt-groups';
+      for (const group of groups) {
+        if (!group.choices.length) continue;
+        const section = document.createElement('div');
+        section.className = 'wt-group';
+        const label = document.createElement('h3');
+        label.textContent = group.label;
+        label.style.color = group.color || '';
+        section.append(label);
+        for (const choice of group.choices) {
+          const row = document.createElement('button');
+          row.type = 'button';
+          row.className = 'wt-row';
+          row.disabled = choice.fare > balance;
+          row.setAttribute('aria-label', `${choice.number}. ${choice.name}, ${choice.km.toFixed(1)} kilometres, ₹${choice.fare}`);
+          const number = document.createElement('span');
+          number.className = 'wt-number';
+          number.textContent = String(choice.number);
+          const name = document.createElement('span');
+          name.textContent = choice.name;
+          const distance = document.createElement('span');
+          distance.className = 'wt-distance';
+          distance.textContent = `${choice.km.toFixed(1)} km`;
+          const fare = document.createElement('span');
+          fare.className = 'wt-fare';
+          fare.textContent = `₹${choice.fare}`;
+          row.append(number, name, distance, fare);
+          row.addEventListener('click', () => onChoose(choice.number));
+          section.append(row);
+        }
+        groupRoot.append(section);
+      }
+      root.append(groupRoot);
+    }
+    const actions = document.createElement('div');
+    actions.className = 'wt-actions';
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'wt-cancel';
+    cancel.textContent = 'Esc · Cancel';
+    cancel.addEventListener('click', onCancel);
+    if (onPageChange && pageLabel) {
+      const previous = document.createElement('button');
+      previous.type = 'button';
+      previous.className = 'wt-cancel';
+      previous.textContent = '‹ Previous';
+      previous.addEventListener('click', () => onPageChange(-1));
+      const page = document.createElement('span');
+      page.className = 'wt-balance';
+      page.textContent = pageLabel;
+      const next = document.createElement('button');
+      next.type = 'button';
+      next.className = 'wt-cancel';
+      next.textContent = 'Next ›';
+      next.addEventListener('click', () => onPageChange(1));
+      actions.append(previous, page, next);
+    }
+    actions.append(cancel);
+    if (onConfirm) {
+      const confirm = document.createElement('button');
+      confirm.type = 'button';
+      confirm.textContent = 'Enter · Go';
+      confirm.addEventListener('click', onConfirm);
+      actions.append(confirm);
+    }
+    root.append(actions);
+    root.classList.remove('hidden');
+    root.querySelector(onConfirm ? '.wt-actions button:not(.wt-cancel)' : '.wt-row:not(:disabled), .wt-cancel')?.focus();
+  }
+
+  closeWhereTo() {
+    this.whereEl.classList.add('hidden');
+    this.whereEl.replaceChildren();
   }
 
   /* ---------- Gesture wheel ---------- */
